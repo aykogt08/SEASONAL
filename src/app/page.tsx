@@ -9,7 +9,7 @@ import { FoodCard } from "@/components/FoodCard";
 import { CustomizeFoodModal } from "@/components/CustomizeFoodModal";
 import { AddFoodModal } from "@/components/AddFoodModal";
 import { FoodWithCheck } from "@/lib/storage";
-import { SeasonType, CategoryType } from "@/lib/initialData";
+import { SeasonType, CategoryType, getInitialFoodItemsWithIcons } from "@/lib/initialData";
 import { Sparkles, Calendar, Plus } from "lucide-react";
 
 // Helper to determine current season from month (0-indexed)
@@ -61,28 +61,80 @@ const SEASON_META: Record<
   },
 };
 
+// Initial synchronous fallback items so UI renders in 0ms without waiting for network
+function getInstantInitialFoods(): FoodWithCheck[] {
+  const defaultItems = getInitialFoodItemsWithIcons();
+  return defaultItems.map((item) => ({
+    ...item,
+    isEaten: false,
+    eatenAt: null,
+  }));
+}
+
 export default function Home() {
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [currentSeason, setCurrentSeason] = useState<SeasonType>(getCurrentSeasonFromDate());
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilterType>("ALL");
-  const [foods, setFoods] = useState<FoodWithCheck[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  
+  // Instant foods state - initialized synchronously with all items!
+  const [foods, setFoods] = useState<FoodWithCheck[]>(getInstantInitialFoods);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [editingFood, setEditingFood] = useState<FoodWithCheck | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
-  // Fetch foods for the selected year
+  // Restore checks from localStorage on mount for instant state
+  useEffect(() => {
+    try {
+      const savedChecksStr = localStorage.getItem(`seasonal_checks_${year}`);
+      if (savedChecksStr) {
+        const savedChecks: Record<string, boolean> = JSON.parse(savedChecksStr);
+        setFoods((prev) =>
+          prev.map((item) =>
+            savedChecks[item.id] !== undefined
+              ? { ...item, isEaten: savedChecks[item.id] }
+              : item
+          )
+        );
+      }
+    } catch {
+      // Ignored
+    }
+  }, [year]);
+
+  // Background fetch from server/DB
   const fetchFoods = useCallback(async (targetYear: number) => {
     try {
-      setIsLoading(true);
-      const res = await fetch(`/api/foods?year=${targetYear}`);
+      setIsSyncing(true);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const res = await fetch(`/api/foods?year=${targetYear}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const data = await res.json();
-        setFoods(data.foods || []);
+        if (Array.isArray(data.foods) && data.foods.length > 0) {
+          setFoods(data.foods);
+          
+          // Cache checks in localStorage
+          const checkMap: Record<string, boolean> = {};
+          data.foods.forEach((f: FoodWithCheck) => {
+            if (f.isEaten) checkMap[f.id] = true;
+          });
+          try {
+            localStorage.setItem(
+              `seasonal_checks_${targetYear}`,
+              JSON.stringify(checkMap)
+            );
+          } catch {}
+        }
       }
     } catch (err) {
-      console.error("Failed to load foods:", err);
+      console.warn("Sync foods notice (using local offline state):", err);
     } finally {
-      setIsLoading(false);
+      setIsSyncing(false);
     }
   }, []);
 
@@ -166,8 +218,8 @@ export default function Home() {
 
   // Optimistic Toggle ON/OFF
   const handleToggleFood = async (foodId: string, nextState: boolean) => {
-    setFoods((prev) =>
-      prev.map((item) =>
+    setFoods((prev) => {
+      const updated = prev.map((item) =>
         item.id === foodId
           ? {
               ...item,
@@ -175,8 +227,19 @@ export default function Home() {
               eatenAt: nextState ? new Date().toISOString() : null,
             }
           : item
-      )
-    );
+      );
+
+      // Save to localStorage immediately
+      try {
+        const checkMap: Record<string, boolean> = {};
+        updated.forEach((f) => {
+          if (f.isEaten) checkMap[f.id] = true;
+        });
+        localStorage.setItem(`seasonal_checks_${year}`, JSON.stringify(checkMap));
+      } catch {}
+
+      return updated;
+    });
 
     if (nextState) {
       const seasonItems = foods.filter((f) => f.season === currentSeason);
@@ -199,8 +262,7 @@ export default function Home() {
         }),
       });
     } catch (err) {
-      console.error("Failed to persist toggle:", err);
-      fetchFoods(year);
+      console.warn("Background check persist note:", err);
     }
   };
 
@@ -214,34 +276,32 @@ export default function Home() {
       iconUrl: string;
     }
   ) => {
+    // Optimistic update
+    setFoods((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...data } : item))
+    );
+
     try {
-      const res = await fetch(`/api/foods/${id}`, {
+      await fetch(`/api/foods/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-
-      if (res.ok) {
-        setFoods((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, ...data } : item))
-        );
-      }
     } catch (err) {
-      console.error("Failed to save food:", err);
+      console.error("Failed to save food on server:", err);
     }
   };
 
   const handleDeleteFood = async (id: string) => {
+    // Optimistic delete
+    setFoods((prev) => prev.filter((item) => item.id !== id));
+
     try {
-      const res = await fetch(`/api/foods/${id}`, {
+      await fetch(`/api/foods/${id}`, {
         method: "DELETE",
       });
-
-      if (res.ok) {
-        setFoods((prev) => prev.filter((item) => item.id !== id));
-      }
     } catch (err) {
-      console.error("Failed to delete food:", err);
+      console.error("Failed to delete food on server:", err);
     }
   };
 
@@ -252,27 +312,34 @@ export default function Home() {
     season: SeasonType;
     iconUrl: string;
   }) => {
-    const res = await fetch("/api/foods", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
+    const tempId = `temp-${Date.now()}`;
+    const optimisticItem: FoodWithCheck = {
+      id: tempId,
+      ...data,
+      sortOrder: foods.length + 1,
+      isEaten: false,
+      eatenAt: null,
+    };
 
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || "Failed to add food");
-    }
+    setFoods((prev) => [...prev, optimisticItem]);
 
-    const result = await res.json();
-    if (result.item) {
-      setFoods((prev) => [
-        ...prev,
-        {
-          ...result.item,
-          isEaten: false,
-          eatenAt: null,
-        },
-      ]);
+    try {
+      const res = await fetch("/api/foods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        if (result.item) {
+          setFoods((prev) =>
+            prev.map((f) => (f.id === tempId ? { ...f, id: result.item.id } : f))
+          );
+        }
+      }
+    } catch (err) {
+      console.warn("Add food background sync note:", err);
     }
   };
 
@@ -301,10 +368,7 @@ export default function Home() {
         <div className="mt-2">
           <SeasonTabs
             currentSeason={currentSeason}
-            onSelectSeason={(season) => {
-              setCurrentSeason(season);
-              // Reset category to ALL or maintain
-            }}
+            onSelectSeason={(season) => setCurrentSeason(season)}
             seasonCounts={seasonCounts}
           />
         </div>
@@ -327,6 +391,9 @@ export default function Home() {
               <span className="px-2 py-0.5 rounded-full bg-[#EBF8F6] border border-[#5DBBB0]/30">
                 {currentMeta.subEn}
               </span>
+              {isSyncing && (
+                <span className="w-1.5 h-1.5 rounded-full bg-[#5DBBB0] animate-ping ml-1" />
+              )}
             </div>
             <h2 className="font-serif-title text-lg sm:text-xl font-bold text-[#3D322C] tracking-wide mt-1">
               {currentMeta.titleEn}
@@ -337,9 +404,7 @@ export default function Home() {
             <span className="text-xs font-serif-title font-semibold text-[#3D322C]">
               {eatenInView} / {displayedFoods.length}
             </span>
-            <span
-              className="text-xs font-bold px-2 py-0.5 rounded-full bg-[#EBF8F6] text-[#3F9A90] border border-[#5DBBB0]/25"
-            >
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[#EBF8F6] text-[#3F9A90] border border-[#5DBBB0]/25">
               {displayedFoods.length > 0
                 ? Math.round((eatenInView / displayedFoods.length) * 100)
                 : 0}
@@ -348,15 +413,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Food Items Grid (Optimized 4 columns on mobile, 4-6 on tablet/desktop) */}
-        {isLoading ? (
-          <div className="w-full py-16 flex flex-col items-center justify-center text-[#3F9A90] gap-2">
-            <div className="w-7 h-7 border-2 border-[#5DBBB0] border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs font-serif-title tracking-wider font-semibold">
-              Loading seasonal tastes...
-            </span>
-          </div>
-        ) : displayedFoods.length === 0 ? (
+        {/* Food Items Grid - Instant Zero-Waiting Rendering */}
+        {displayedFoods.length === 0 ? (
           <div className="w-full p-8 rounded-2xl bg-white border border-[#5DBBB0]/30 text-center my-4 flex flex-col items-center gap-3 shadow-xs">
             <Calendar className="w-8 h-8 text-[#5DBBB0]" />
             <div>

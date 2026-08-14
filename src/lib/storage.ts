@@ -65,7 +65,6 @@ function loadLocalStore(): LocalStoreData {
         foods: mergedFoods,
         checks: parsed.checks || {},
       };
-      saveLocalStore(cachedData);
       return cachedData;
     }
   } catch (err) {
@@ -76,7 +75,6 @@ function loadLocalStore(): LocalStoreData {
     foods: defaultFoods,
     checks: {},
   };
-  saveLocalStore(cachedData);
   return cachedData;
 }
 
@@ -92,48 +90,63 @@ function saveLocalStore(data: LocalStoreData) {
   }
 }
 
+// Timeout helper to avoid DB connection hanging on Vercel
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 1500): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Database operation timed out")), timeoutMs)
+    ),
+  ]);
+}
+
 export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
-  try {
-    if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
-      let count = 0;
-      try {
-        count = await prisma.foodItem.count();
-      } catch (e) {
-        console.warn("DB table check:", e);
-      }
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        let count = 0;
+        try {
+          count = await prisma.foodItem.count();
+        } catch {
+          // Table might not exist yet
+        }
 
-      if (count === 0) {
-        await seedDatabase();
-      }
+        if (count === 0) {
+          await seedDatabase();
+        }
 
-      const foods = await prisma.foodItem.findMany({
-        orderBy: [{ season: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-        include: {
-          checks: {
-            where: { year },
+        const foods = await prisma.foodItem.findMany({
+          orderBy: [{ season: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+          include: {
+            checks: {
+              where: { year },
+            },
           },
-        },
-      });
+        });
 
-      return foods.map((f) => {
-        const check = f.checks[0];
-        return {
-          id: f.id,
-          nameEn: f.nameEn,
-          nameJa: f.nameJa,
-          category: f.category,
-          season: f.season,
-          iconUrl: f.iconUrl,
-          sortOrder: f.sortOrder,
-          isEaten: check ? check.isEaten : false,
-          eatenAt: check && check.eatenAt ? check.eatenAt.toISOString() : null,
-        };
-      });
+        return foods.map((f) => {
+          const check = f.checks[0];
+          return {
+            id: f.id,
+            nameEn: f.nameEn,
+            nameJa: f.nameJa,
+            category: f.category,
+            season: f.season,
+            iconUrl: f.iconUrl,
+            sortOrder: f.sortOrder,
+            isEaten: check ? check.isEaten : false,
+            eatenAt: check && check.eatenAt ? check.eatenAt.toISOString() : null,
+          };
+        });
+      };
+
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB fetch failed/timed out, using fast store fallback:", error);
     }
-  } catch (error) {
-    console.warn("Falling back to local persistent store:", error);
   }
 
+  // Fast In-Memory / Local Store
   const store = loadLocalStore();
   return store.foods.map((f) => {
     const key = `${year}-${f.id}`;
@@ -159,34 +172,38 @@ export async function toggleFoodCheck(
 ): Promise<{ isEaten: boolean; eatenAt: string | null }> {
   const eatenAt = isEaten ? new Date() : null;
 
-  try {
-    if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
-      const result = await prisma.foodCheck.upsert({
-        where: {
-          year_foodItemId: {
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        const result = await prisma.foodCheck.upsert({
+          where: {
+            year_foodItemId: {
+              year,
+              foodItemId,
+            },
+          },
+          update: {
+            isEaten,
+            eatenAt,
+          },
+          create: {
             year,
             foodItemId,
+            isEaten,
+            eatenAt,
           },
-        },
-        update: {
-          isEaten,
-          eatenAt,
-        },
-        create: {
-          year,
-          foodItemId,
-          isEaten,
-          eatenAt,
-        },
-      });
+        });
 
-      return {
-        isEaten: result.isEaten,
-        eatenAt: result.eatenAt ? result.eatenAt.toISOString() : null,
+        return {
+          isEaten: result.isEaten,
+          eatenAt: result.eatenAt ? result.eatenAt.toISOString() : null,
+        };
       };
+
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB toggle failed/timed out, saving to fast store:", error);
     }
-  } catch (error) {
-    console.warn("DB toggle failed, saving to local store:", error);
   }
 
   const store = loadLocalStore();
@@ -207,15 +224,18 @@ export async function updateFoodItem(
     iconUrl?: string;
   }
 ) {
-  try {
-    if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
-      return await prisma.foodItem.update({
-        where: { id },
-        data,
-      });
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        return await prisma.foodItem.update({
+          where: { id },
+          data,
+        });
+      };
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB update failed, updating local store:", error);
     }
-  } catch (error) {
-    console.warn("DB update failed, updating local store:", error);
   }
 
   const store = loadLocalStore();
@@ -240,23 +260,26 @@ export async function createFoodItem(data: {
   season: "SPRING" | "SUMMER" | "AUTUMN" | "WINTER";
   iconUrl: string;
 }) {
-  try {
-    if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
-      const highestSort = await prisma.foodItem.aggregate({
-        where: { season: data.season },
-        _max: { sortOrder: true },
-      });
-      const nextSort = (highestSort._max.sortOrder || 0) + 1;
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        const highestSort = await prisma.foodItem.aggregate({
+          where: { season: data.season },
+          _max: { sortOrder: true },
+        });
+        const nextSort = (highestSort._max.sortOrder || 0) + 1;
 
-      return await prisma.foodItem.create({
-        data: {
-          ...data,
-          sortOrder: nextSort,
-        },
-      });
+        return await prisma.foodItem.create({
+          data: {
+            ...data,
+            sortOrder: nextSort,
+          },
+        });
+      };
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB create failed, adding to fast store:", error);
     }
-  } catch (error) {
-    console.warn("DB create failed, adding to local store:", error);
   }
 
   const store = loadLocalStore();
@@ -273,14 +296,17 @@ export async function createFoodItem(data: {
 }
 
 export async function deleteFoodItem(id: string) {
-  try {
-    if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
-      return await prisma.foodItem.delete({
-        where: { id },
-      });
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        return await prisma.foodItem.delete({
+          where: { id },
+        });
+      };
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB delete failed, removing from fast store:", error);
     }
-  } catch (error) {
-    console.warn("DB delete failed, removing from local store:", error);
   }
 
   const store = loadLocalStore();
