@@ -323,3 +323,60 @@ export function getSvgDataUrl(key: string): string {
   const svg = getPresetSvg(key);
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
+
+export const ALL_PRESET_ICONS = [
+  // Fruits
+  { key: "strawberry", label: "いちご" },
+  { key: "peach", label: "桃" },
+  { key: "cherry", label: "さくらんぼ" },
+  { key: "watermelon", label: "すいか" },
+  { key: "melon", label: "メロン" },
+  { key: "mango", label: "マンゴー" },
+  { key: "blueberry", label: "ブルーベリー" },
+  { key: "citrus_orange", label: "みかん・柑橘" },
+  { key: "citrus_yellow", label: "レモン・柚子" },
+  { key: "apple_red", label: "りんご" },
+  { key: "pear", label: "梨・洋梨" },
+  { key: "grape_purple", label: "ぶどう・巨峰" },
+  { key: "grape_green", label: "マスカット" },
+  { key: "persimmon", label: "柿" },
+  { key: "fig", label: "いちじく" },
+  { key: "kiwi", label: "キウイ" },
+  { key: "biwa", label: "びわ" },
+  { key: "tropical", label: "南国フルーツ" },
+  
+  // Veggies & Mushrooms
+  { key: "tomato", label: "トマト" },
+  { key: "cucumber", label: "きゅうり" },
+  { key: "eggplant", label: "なす" },
+  { key: "pepper", label: "ピーマン" },
+  { key: "corn", label: "とうもろこし" },
+  { key: "pumpkin", label: "かぼちゃ" },
+  { key: "sweet_potato", label: "さつまいも" },
+  { key: "root_vegetable", label: "大根・人参" },
+  { key: "lotus_root", label: "れんこん" },
+  { key: "onion", label: "玉ねぎ・長ねぎ" },
+  { key: "cabbage", label: "キャベツ・白菜" },
+  { key: "leafy_green", label: "葉野菜" },
+  { key: "pea", label: "えんどう・枝豆" },
+  { key: "mushroom", label: "きのこ" },
+  { key: "bamboo_shoot", label: "たけのこ" },
+  { key: "wild_greens", label: "山菜" },
+  { key: "asparagus", label: "アスパラ" },
+  { key: "chestnut", label: "栗" },
+  { key: "gingko", label: "銀杏" },
+
+  // Seafood & Others
+  { key: "fish_blue", label: "青魚・鰹" },
+  { key: "fish_red", label: "鯛・赤魚" },
+  { key: "fish_silver", label: "白身魚・秋刀魚" },
+  { key: "fish_yellow", label: "ブリ・カンパチ" },
+  { key: "salmon_roe", label: "イクラ・たらこ" },
+  { key: "crab", label: "カニ" },
+  { key: "shrimp", label: "エビ" },
+  { key: "squid", label: "イカ" },
+  { key: "oyster", label: "牡蠣" },
+  { key: "shellfish", label: "貝・なまこ" },
+  { key: "pufferfish", label: "ふぐ" },
+  { key: "default_sparkle", label: "きらきら" },
+];

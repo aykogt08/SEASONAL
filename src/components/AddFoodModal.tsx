@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { X, Upload, Image as ImageIcon, Plus } from "lucide-react";
+import { X, Upload, Plus, Sparkles, Check } from "lucide-react";
 import { SeasonType, CategoryType } from "@/lib/initialData";
+import { ALL_PRESET_ICONS, getSvgDataUrl } from "@/lib/presetIcons";
 import { resizeImageFile } from "@/lib/imageUtils";
 
 interface AddFoodModalProps {
@@ -28,13 +29,20 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [nameJa, setNameJa] = useState("");
   const [category, setCategory] = useState<CategoryType>("FRUIT");
   const [season, setSeason] = useState<SeasonType>(initialSeason);
-  const [iconUrl, setIconUrl] = useState("");
+  const [iconMode, setIconMode] = useState<"preset" | "upload">("preset");
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>("strawberry");
+  const [iconUrl, setIconUrl] = useState<string>(getSvgDataUrl("strawberry"));
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleSelectPreset = (key: string) => {
+    setSelectedPresetKey(key);
+    setIconUrl(getSvgDataUrl(key));
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -45,6 +53,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setErrorMessage("");
       const compressed = await resizeImageFile(file, 256, 0.85);
       setIconUrl(compressed);
+      setSelectedPresetKey("");
     } catch (err) {
       console.error("Image process error:", err);
       setErrorMessage("Failed to process image.");
@@ -63,6 +72,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setErrorMessage("");
       const compressed = await resizeImageFile(file, 256, 0.85);
       setIconUrl(compressed);
+      setSelectedPresetKey("");
     } catch (err) {
       console.error("Image process error:", err);
       setErrorMessage("Failed to process image.");
@@ -83,7 +93,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         nameJa: nameJa.trim(),
         category,
         season,
-        iconUrl: iconUrl || "",
+        iconUrl: iconUrl || getSvgDataUrl("default_sparkle"),
       });
       onClose();
     } catch (error) {
@@ -107,7 +117,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               Add Seasonal Food
             </h2>
             <p className="text-[11px] text-[#3F9A90] font-medium">
-              Add a new item to your seasonal checklist
+              Add a new item to your personal seasonal checklist
             </p>
           </div>
           <button
@@ -125,13 +135,42 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          {/* Icon Upload & Preview */}
+          {/* Icon Choice Mode: Preset vs Photo Upload */}
           <div>
-            <label className="block text-xs font-semibold text-[#3D322C] mb-1.5 font-serif-title">
-              Icon Image (Optional)
-            </label>
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-b from-white to-[#EBF8F6] border-2 border-[#5DBBB0]/40 p-2 flex items-center justify-center flex-shrink-0 shadow-xs">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-[#3D322C] font-serif-title">
+                Icon Image
+              </label>
+              {/* Tabs */}
+              <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-xl border border-[#EBE4DC]">
+                <button
+                  type="button"
+                  onClick={() => setIconMode("preset")}
+                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer ${
+                    iconMode === "preset"
+                      ? "bg-[#5DBBB0] text-white shadow-xs"
+                      : "text-[#8C7E75] hover:text-[#3D322C]"
+                  }`}
+                >
+                  ✨ Preset Icon
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIconMode("upload")}
+                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-semibold transition-all cursor-pointer ${
+                    iconMode === "upload"
+                      ? "bg-[#5DBBB0] text-white shadow-xs"
+                      : "text-[#8C7E75] hover:text-[#3D322C]"
+                  }`}
+                >
+                  📷 Upload Photo
+                </button>
+              </div>
+            </div>
+
+            {/* Preview Box */}
+            <div className="flex items-center gap-3 p-2.5 bg-[#FAF8F5] rounded-2xl border border-[#EBE4DC]">
+              <div className="w-14 h-14 rounded-2xl bg-white border-2 border-[#5DBBB0]/40 p-2 flex items-center justify-center flex-shrink-0 shadow-xs">
                 {iconUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
@@ -140,32 +179,84 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     className="w-full h-full object-contain drop-shadow-xs"
                   />
                 ) : (
-                  <ImageIcon className="w-6 h-6 text-[#5DBBB0]/60" />
+                  <Sparkles className="w-6 h-6 text-[#5DBBB0]/60" />
                 )}
               </div>
-
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 border-2 border-dashed border-[#5DBBB0]/40 hover:border-[#5DBBB0] rounded-2xl p-3 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-[#EBF8F6]/40 hover:bg-[#EBF8F6]/80"
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,.heic,.heif"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <Upload className="w-4 h-4 text-[#5DBBB0] mb-1 stroke-[2.5]" />
-                <span className="text-[11px] font-semibold text-[#3F9A90]">
-                  {isUploading ? "Converting & Resizing..." : "Click or Drop icon image"}
-                </span>
-                <span className="text-[9px] text-[#8C7E75]">
-                  PNG, JPG, HEIC (iPhone), WebP
-                </span>
+              <div className="text-xs text-[#8C7E75]">
+                <p className="font-serif-title font-semibold text-[#3D322C]">
+                  {iconMode === "preset" ? "Selected Preset Icon" : "Custom Photo"}
+                </p>
+                <p className="text-[10px] text-[#3F9A90] mt-0.5">
+                  {iconMode === "preset"
+                    ? "Tap an icon below to select"
+                    : "Upload your favorite food photo"}
+                </p>
               </div>
             </div>
+
+            {/* Mode 1: Preset Icons Grid */}
+            {iconMode === "preset" && (
+              <div className="mt-2.5">
+                <div className="grid grid-cols-6 gap-1.5 max-h-36 overflow-y-auto p-1.5 bg-[#FAF8F5] rounded-2xl border border-[#EBE4DC]">
+                  {ALL_PRESET_ICONS.map((preset) => {
+                    const isSelected = selectedPresetKey === preset.key;
+                    const url = getSvgDataUrl(preset.key);
+                    return (
+                      <button
+                        type="button"
+                        key={preset.key}
+                        onClick={() => handleSelectPreset(preset.key)}
+                        title={preset.label}
+                        className={`aspect-square relative rounded-xl p-1 flex items-center justify-center transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-white border-2 border-[#5DBBB0] shadow-xs scale-105"
+                            : "bg-white/80 hover:bg-white border border-[#EBE4DC] hover:border-[#5DBBB0]/40"
+                        }`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={url}
+                          alt={preset.label}
+                          className="w-full h-full object-contain pointer-events-none"
+                        />
+                        {isSelected && (
+                          <div className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#5DBBB0] text-white flex items-center justify-center shadow-xs">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Mode 2: Photo Upload Area */}
+            {iconMode === "upload" && (
+              <div className="mt-2.5">
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-[#5DBBB0]/40 hover:border-[#5DBBB0] rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-[#EBF8F6]/40 hover:bg-[#EBF8F6]/80"
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <Upload className="w-5 h-5 text-[#5DBBB0] mb-1.5 stroke-[2.5]" />
+                  <span className="text-xs font-semibold text-[#3F9A90]">
+                    {isUploading ? "Converting & Compressing..." : "Click or Drop photo here"}
+                  </span>
+                  <span className="text-[9.5px] text-[#8C7E75] mt-0.5">
+                    Supports iPhone Photos (HEIC), PNG, JPG, WebP
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* English Label */}
