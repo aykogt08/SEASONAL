@@ -3,8 +3,16 @@ import path from "path";
 import { prisma } from "./prisma";
 import { getInitialFoodItemsWithIcons, InitialFoodItem } from "./initialData";
 
+export interface UserData {
+  id: string;
+  name: string;
+  avatar: string;
+  createdAt?: string;
+}
+
 export interface FoodWithCheck {
   id: string;
+  userId?: string | null;
   nameEn: string;
   nameJa: string;
   category: "FRUIT" | "VEGETABLE" | "SEAFOOD" | "OTHER";
@@ -20,8 +28,9 @@ const DATA_DIR = process.env.VERCEL ? "/tmp" : path.join(process.cwd(), ".data")
 const DATA_FILE = path.join(DATA_DIR, "seasonal_data.json");
 
 interface LocalStoreData {
-  foods: (InitialFoodItem & { iconUrl: string })[];
-  checks: Record<string, { isEaten: boolean; eatenAt: string | null }>;
+  users: UserData[];
+  foods: (InitialFoodItem & { iconUrl: string; userId?: string | null })[];
+  checks: Record<string, { isEaten: boolean; eatenAt: string | null }>; // key: `${userId}-${year}-${foodItemId}` or `${year}-${foodItemId}`
 }
 
 let cachedData: LocalStoreData | null = null;
@@ -36,11 +45,11 @@ function loadLocalStore(): LocalStoreData {
       const content = fs.readFileSync(DATA_FILE, "utf-8");
       const parsed = JSON.parse(content);
       
-      const existingFoodMap = new Map<string, InitialFoodItem & { iconUrl?: string }>(
-        (parsed.foods || []).map((f: InitialFoodItem & { iconUrl?: string }) => [f.id, f])
+      const existingFoodMap = new Map<string, InitialFoodItem & { iconUrl?: string; userId?: string | null }>(
+        (parsed.foods || []).map((f: InitialFoodItem & { iconUrl?: string; userId?: string | null }) => [f.id, f])
       );
       
-      const mergedFoods: (InitialFoodItem & { iconUrl: string })[] = defaultFoods.map((defFood) => {
+      const mergedFoods: (InitialFoodItem & { iconUrl: string; userId?: string | null })[] = defaultFoods.map((defFood) => {
         const existing = existingFoodMap.get(defFood.id);
         if (existing) {
           return {
@@ -52,8 +61,8 @@ function loadLocalStore(): LocalStoreData {
         return defFood;
       });
 
-      (parsed.foods || []).forEach((f: InitialFoodItem & { iconUrl?: string }) => {
-        if (f.id.startsWith("custom-") && !mergedFoods.some((m) => m.id === f.id)) {
+      (parsed.foods || []).forEach((f: InitialFoodItem & { iconUrl?: string; userId?: string | null }) => {
+        if ((f.id.startsWith("custom-") || f.id.startsWith("temp-")) && !mergedFoods.some((m) => m.id === f.id)) {
           mergedFoods.push({
             ...f,
             iconUrl: f.iconUrl || "",
@@ -62,6 +71,7 @@ function loadLocalStore(): LocalStoreData {
       });
 
       cachedData = {
+        users: parsed.users || [],
         foods: mergedFoods,
         checks: parsed.checks || {},
       };
@@ -72,6 +82,7 @@ function loadLocalStore(): LocalStoreData {
   }
 
   cachedData = {
+    users: [],
     foods: defaultFoods,
     checks: {},
   };
@@ -100,7 +111,79 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 1500): Promise<T> {
   ]);
 }
 
-export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
+// ----------------------------------------------------
+// User Management
+// ----------------------------------------------------
+
+export async function getUsers(): Promise<UserData[]> {
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        const dbUsers = await prisma.user.findMany({
+          orderBy: { createdAt: "asc" },
+        });
+        return dbUsers.map((u) => ({
+          id: u.id,
+          name: u.name,
+          avatar: u.avatar,
+          createdAt: u.createdAt.toISOString(),
+        }));
+      };
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB getUsers fallback:", error);
+    }
+  }
+
+  const store = loadLocalStore();
+  return store.users || [];
+}
+
+export async function getOrCreateUser(name: string, avatar = "🌸"): Promise<UserData> {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error("Name cannot be empty");
+
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        const user = await prisma.user.upsert({
+          where: { name: trimmedName },
+          update: { avatar },
+          create: { name: trimmedName, avatar },
+        });
+        return {
+          id: user.id,
+          name: user.name,
+          avatar: user.avatar,
+          createdAt: user.createdAt.toISOString(),
+        };
+      };
+      return await withTimeout(dbTask(), 2000);
+    } catch (error) {
+      console.warn("DB getOrCreateUser fallback:", error);
+    }
+  }
+
+  const store = loadLocalStore();
+  let user = (store.users || []).find((u) => u.name.toLowerCase() === trimmedName.toLowerCase());
+  if (!user) {
+    user = {
+      id: `usr-${Date.now()}`,
+      name: trimmedName,
+      avatar,
+      createdAt: new Date().toISOString(),
+    };
+    store.users = [...(store.users || []), user];
+    saveLocalStore(store);
+  }
+  return user;
+}
+
+// ----------------------------------------------------
+// Foods & Checks Management with User Support
+// ----------------------------------------------------
+
+export async function getFoodsForYear(year: number, userId?: string | null): Promise<FoodWithCheck[]> {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
     try {
       const dbTask = async () => {
@@ -116,10 +199,19 @@ export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
         }
 
         const foods = await prisma.foodItem.findMany({
+          where: {
+            OR: [
+              { userId: null }, // standard shared items
+              ...(userId ? [{ userId }] : []), // custom items by this user
+            ],
+          },
           orderBy: [{ season: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
           include: {
             checks: {
-              where: { year },
+              where: {
+                year,
+                ...(userId ? { userId } : {}),
+              },
             },
           },
         });
@@ -128,6 +220,7 @@ export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
           const check = f.checks[0];
           return {
             id: f.id,
+            userId: f.userId,
             nameEn: f.nameEn,
             nameJa: f.nameJa,
             category: f.category,
@@ -148,11 +241,17 @@ export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
 
   // Fast In-Memory / Local Store
   const store = loadLocalStore();
-  return store.foods.map((f) => {
-    const key = `${year}-${f.id}`;
-    const check = store.checks[key];
+  const relevantFoods = store.foods.filter(
+    (f) => !f.userId || (userId && f.userId === userId)
+  );
+
+  return relevantFoods.map((f) => {
+    const userKey = userId ? `${userId}-${year}-${f.id}` : `${year}-${f.id}`;
+    const legacyKey = `${year}-${f.id}`;
+    const check = store.checks[userKey] || store.checks[legacyKey];
     return {
       id: f.id,
+      userId: f.userId || null,
       nameEn: f.nameEn,
       nameJa: f.nameJa,
       category: f.category,
@@ -168,16 +267,18 @@ export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
 export async function toggleFoodCheck(
   year: number,
   foodItemId: string,
-  isEaten: boolean
+  isEaten: boolean,
+  userId?: string | null
 ): Promise<{ isEaten: boolean; eatenAt: string | null }> {
   const eatenAt = isEaten ? new Date() : null;
 
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres") && userId) {
     try {
       const dbTask = async () => {
         const result = await prisma.foodCheck.upsert({
           where: {
-            year_foodItemId: {
+            userId_year_foodItemId: {
+              userId,
               year,
               foodItemId,
             },
@@ -187,6 +288,7 @@ export async function toggleFoodCheck(
             eatenAt,
           },
           create: {
+            userId,
             year,
             foodItemId,
             isEaten,
@@ -207,7 +309,7 @@ export async function toggleFoodCheck(
   }
 
   const store = loadLocalStore();
-  const key = `${year}-${foodItemId}`;
+  const key = userId ? `${userId}-${year}-${foodItemId}` : `${year}-${foodItemId}`;
   const record = { isEaten, eatenAt: eatenAt ? eatenAt.toISOString() : null };
   store.checks[key] = record;
   saveLocalStore(store);
@@ -253,13 +355,16 @@ export async function updateFoodItem(
   throw new Error("Food item not found");
 }
 
-export async function createFoodItem(data: {
-  nameEn: string;
-  nameJa: string;
-  category: "FRUIT" | "VEGETABLE" | "SEAFOOD" | "OTHER";
-  season: "SPRING" | "SUMMER" | "AUTUMN" | "WINTER";
-  iconUrl: string;
-}) {
+export async function createFoodItem(
+  data: {
+    nameEn: string;
+    nameJa: string;
+    category: "FRUIT" | "VEGETABLE" | "SEAFOOD" | "OTHER";
+    season: "SPRING" | "SUMMER" | "AUTUMN" | "WINTER";
+    iconUrl: string;
+  },
+  userId?: string | null
+) {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
     try {
       const dbTask = async () => {
@@ -272,6 +377,7 @@ export async function createFoodItem(data: {
         return await prisma.foodItem.create({
           data: {
             ...data,
+            userId: userId || null,
             sortOrder: nextSort,
           },
         });
@@ -284,8 +390,9 @@ export async function createFoodItem(data: {
 
   const store = loadLocalStore();
   const newId = `custom-${Date.now()}`;
-  const newItem: InitialFoodItem & { iconUrl: string } = {
+  const newItem: InitialFoodItem & { iconUrl: string; userId?: string | null } = {
     id: newId,
+    userId: userId || null,
     ...data,
     iconKey: "custom",
     sortOrder: store.foods.filter((f) => f.season === data.season).length + 1,

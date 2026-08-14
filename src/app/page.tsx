@@ -9,7 +9,8 @@ import { SearchBar } from "@/components/SearchBar";
 import { FoodCard } from "@/components/FoodCard";
 import { CustomizeFoodModal } from "@/components/CustomizeFoodModal";
 import { AddFoodModal } from "@/components/AddFoodModal";
-import { FoodWithCheck } from "@/lib/storage";
+import { LoginModal } from "@/components/LoginModal";
+import { FoodWithCheck, UserData } from "@/lib/storage";
 import { SeasonType, CategoryType, getInitialFoodItemsWithIcons } from "@/lib/initialData";
 import { Sparkles, Calendar, Plus, Search } from "lucide-react";
 
@@ -85,6 +86,8 @@ function getInstantInitialFoods(): FoodWithCheck[] {
 }
 
 export default function Home() {
+  const [currentUser, setCurrentUser] = useState<UserData | null>(null);
+  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [currentSeason, setCurrentSeason] = useState<SeasonType>(getCurrentSeasonFromDate());
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilterType>("ALL");
@@ -98,13 +101,36 @@ export default function Home() {
 
   const isSearching = searchQuery.trim().length > 0;
 
-  // Restore checks & custom foods from localStorage on mount & year change
+  // Restore current user on mount
   useEffect(() => {
     try {
-      const savedChecksStr = localStorage.getItem(`seasonal_checks_${year}`);
-      const savedCustomStr = localStorage.getItem("seasonal_custom_foods");
+      const savedUserStr = localStorage.getItem("seasonal_current_user");
+      if (savedUserStr) {
+        const savedUser: UserData = JSON.parse(savedUserStr);
+        setCurrentUser(savedUser);
+      } else {
+        // Prompt login modal on first visit
+        setIsUserModalOpen(true);
+      }
+    } catch {
+      setIsUserModalOpen(true);
+    }
+  }, []);
+
+  // Restore checks & custom foods from localStorage on user or year change
+  useEffect(() => {
+    try {
+      const userId = currentUser?.id || "anonymous";
+      const savedChecksStr = localStorage.getItem(`seasonal_checks_${userId}_${year}`);
+      const fallbackChecksStr = localStorage.getItem(`seasonal_checks_${year}`); // backward compatibility
       
-      const savedChecks: Record<string, boolean> = savedChecksStr ? JSON.parse(savedChecksStr) : {};
+      const savedChecks: Record<string, boolean> = savedChecksStr
+        ? JSON.parse(savedChecksStr)
+        : fallbackChecksStr
+        ? JSON.parse(fallbackChecksStr)
+        : {};
+
+      const savedCustomStr = localStorage.getItem("seasonal_custom_foods");
       const customItems: FoodWithCheck[] = savedCustomStr ? JSON.parse(savedCustomStr) : [];
 
       setFoods((prev) => {
@@ -114,22 +140,23 @@ export default function Home() {
 
         return combined.map((item) => ({
           ...item,
-          isEaten: savedChecks[item.id] !== undefined ? savedChecks[item.id] : item.isEaten,
+          isEaten: savedChecks[item.id] !== undefined ? savedChecks[item.id] : false,
         }));
       });
     } catch {
       // Ignored
     }
-  }, [year]);
+  }, [year, currentUser]);
 
-  // Background fetch from server/DB with smart client-side check merge
-  const fetchFoods = useCallback(async (targetYear: number) => {
+  // Background fetch from server/DB with user ID
+  const fetchFoods = useCallback(async (targetYear: number, targetUserId?: string | null) => {
     try {
       setIsSyncing(true);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-      const res = await fetch(`/api/foods?year=${targetYear}`, {
+      const userIdParam = targetUserId ? `&userId=${encodeURIComponent(targetUserId)}` : "";
+      const res = await fetch(`/api/foods?year=${targetYear}${userIdParam}`, {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -137,9 +164,10 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.foods) && data.foods.length > 0) {
+          const uId = targetUserId || "anonymous";
           let localChecks: Record<string, boolean> = {};
           try {
-            const savedChecksStr = localStorage.getItem(`seasonal_checks_${targetYear}`);
+            const savedChecksStr = localStorage.getItem(`seasonal_checks_${uId}_${targetYear}`);
             if (savedChecksStr) localChecks = JSON.parse(savedChecksStr);
           } catch {}
 
@@ -158,7 +186,7 @@ export default function Home() {
             if (f.isEaten) checkMap[f.id] = true;
           });
           try {
-            localStorage.setItem(`seasonal_checks_${targetYear}`, JSON.stringify(checkMap));
+            localStorage.setItem(`seasonal_checks_${uId}_${targetYear}`, JSON.stringify(checkMap));
           } catch {}
         }
       }
@@ -170,8 +198,16 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetchFoods(year);
-  }, [year, fetchFoods]);
+    fetchFoods(year, currentUser?.id);
+  }, [year, currentUser, fetchFoods]);
+
+  const handleSelectUser = (user: UserData) => {
+    setCurrentUser(user);
+    try {
+      localStorage.setItem("seasonal_current_user", JSON.stringify(user));
+    } catch {}
+    setIsUserModalOpen(false);
+  };
 
   // Total stats across all seasons for the year
   const totalStats = useMemo(() => {
@@ -256,8 +292,10 @@ export default function Home() {
     }
   };
 
-  // Optimistic Toggle ON/OFF with localStorage persistence
+  // Optimistic Toggle ON/OFF with user-isolated localStorage persistence
   const handleToggleFood = async (foodId: string, nextState: boolean) => {
+    const userId = currentUser?.id || "anonymous";
+
     setFoods((prev) => {
       const updated = prev.map((item) =>
         item.id === foodId
@@ -271,7 +309,7 @@ export default function Home() {
 
       try {
         let currentChecks: Record<string, boolean> = {};
-        const saved = localStorage.getItem(`seasonal_checks_${year}`);
+        const saved = localStorage.getItem(`seasonal_checks_${userId}_${year}`);
         if (saved) currentChecks = JSON.parse(saved);
 
         if (nextState) {
@@ -279,7 +317,7 @@ export default function Home() {
         } else {
           delete currentChecks[foodId];
         }
-        localStorage.setItem(`seasonal_checks_${year}`, JSON.stringify(currentChecks));
+        localStorage.setItem(`seasonal_checks_${userId}_${year}`, JSON.stringify(currentChecks));
       } catch {}
 
       return updated;
@@ -303,6 +341,7 @@ export default function Home() {
           year,
           foodItemId: foodId,
           isEaten: nextState,
+          userId: currentUser?.id || null,
         }),
       });
     } catch (err) {
@@ -369,6 +408,7 @@ export default function Home() {
     const customId = `custom-${Date.now()}`;
     const newItem: FoodWithCheck = {
       id: customId,
+      userId: currentUser?.id || null,
       ...data,
       sortOrder: foods.length + 1,
       isEaten: false,
@@ -388,7 +428,7 @@ export default function Home() {
       await fetch("/api/foods", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, userId: currentUser?.id || null }),
       });
     } catch (err) {
       console.warn("Add food background sync note:", err);
@@ -414,6 +454,8 @@ export default function Home() {
           totalStats={totalStats}
           themeAccent={currentMeta.accent}
           onOpenAddModal={() => setIsAddModalOpen(true)}
+          currentUser={currentUser}
+          onOpenUserModal={() => setIsUserModalOpen(true)}
         />
 
         {/* Search Bar */}
@@ -425,7 +467,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Season Navigation Tabs & Category Filters (Hidden when searching to focus on search results) */}
+        {/* Season Navigation Tabs & Category Filters (Hidden when searching) */}
         {!isSearching && (
           <>
             {/* Season Navigation Tabs */}
@@ -437,7 +479,7 @@ export default function Home() {
               />
             </div>
 
-            {/* Category Filter Pills (Fruit / Veggie / Seafood / Other) */}
+            {/* Category Filter Pills */}
             <div className="mt-3">
               <CategoryFilter
                 selectedCategory={selectedCategory}
@@ -571,6 +613,14 @@ export default function Home() {
           onAdd={handleAddFood}
         />
       )}
+
+      {/* Login & User Profile Switcher Modal */}
+      <LoginModal
+        isOpen={isUserModalOpen}
+        currentUser={currentUser}
+        onClose={() => setIsUserModalOpen(false)}
+        onSelectUser={handleSelectUser}
+      />
     </main>
   );
 }

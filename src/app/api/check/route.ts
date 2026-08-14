@@ -6,13 +6,13 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { year, foodItemId, isEaten } = body;
+    const { year, foodItemId, isEaten, userId } = body;
 
     if (typeof year !== "number" || !foodItemId || typeof isEaten !== "boolean") {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const result = await toggleFoodCheck(year, foodItemId, isEaten);
+    const result = await toggleFoodCheck(year, foodItemId, isEaten, userId || null);
     return NextResponse.json({ result });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to toggle check";

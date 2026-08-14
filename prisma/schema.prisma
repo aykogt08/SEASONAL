@@ -21,8 +21,21 @@ enum Category {
   OTHER
 }
 
+model User {
+  id        String      @id @default(cuid())
+  name      String      @unique
+  avatar    String      @default("🌸")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  checks    FoodCheck[]
+  foods     FoodItem[]
+}
+
 model FoodItem {
   id        String      @id @default(cuid())
+  userId    String?     // null for standard preset items, user ID for custom items
+  user      User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
   nameEn    String      // English label (e.g., WHITE PEACH)
   nameJa    String      // Japanese sub label (e.g., 白桃)
   category  Category    @default(FRUIT)
@@ -33,10 +46,14 @@ model FoodItem {
   updatedAt DateTime    @updatedAt
 
   checks    FoodCheck[]
+
+  @@index([userId])
 }
 
 model FoodCheck {
   id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   year       Int       // Year (e.g., 2026)
   foodItemId String
   foodItem   FoodItem  @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
@@ -46,6 +63,7 @@ model FoodCheck {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  @@unique([year, foodItemId])
+  @@unique([userId, year, foodItemId])
+  @@index([userId, year])
   @@index([year])
 }
