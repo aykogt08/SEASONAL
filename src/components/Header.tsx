@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronLeft, ChevronRight, Plus, Sparkles, User as UserIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Sparkles, User as UserIcon } from "lucide-react";
 import { UserData } from "@/lib/storage";
 
 interface HeaderProps {
@@ -9,7 +9,6 @@ interface HeaderProps {
   onYearChange: (newYear: number) => void;
   totalStats: { total: number; eaten: number };
   themeAccent: string;
-  onOpenAddModal: () => void;
   currentUser: UserData | null;
   onOpenUserModal: () => void;
 }
@@ -19,7 +18,6 @@ export const Header: React.FC<HeaderProps> = ({
   onYearChange,
   totalStats,
   themeAccent,
-  onOpenAddModal,
   currentUser,
   onOpenUserModal,
 }) => {
@@ -30,7 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="w-full pt-4 pb-3">
-      {/* Top Bar: Brand & Action */}
+      {/* Top Bar: Brand & Profile */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 sm:gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#5DBBB0] to-[#3F9A90] flex items-center justify-center text-white shadow-xs flex-shrink-0">
@@ -38,57 +36,45 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h1 className="font-serif-title text-xl sm:text-3xl font-bold tracking-widest text-[#3D322C]">
+              <h1 className="font-serif-title text-xl sm:text-2xl font-bold tracking-widest text-[#3D322C]">
                 SEASONAL
               </h1>
               <span className="text-[9px] uppercase px-2 py-0.5 rounded-full bg-[#EBF8F6] text-[#3F9A90] font-semibold tracking-wider border border-[#5DBBB0]/30">
                 Log
               </span>
             </div>
-            <p className="text-[9px] sm:text-[11px] text-[#8C7E75] tracking-wider truncate">
+            <p className="text-[9px] sm:text-[10.5px] text-[#8C7E75] tracking-wider truncate">
               YEARLY HARVEST JOURNAL
             </p>
           </div>
         </div>
 
-        {/* Right Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* User Profile Pill Button */}
-          <button
-            onClick={onOpenUserModal}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full bg-white hover:bg-[#EBF8F6] border border-[#5DBBB0]/40 text-[#3D322C] transition-all text-xs font-semibold cursor-pointer shadow-xs active:scale-95"
-            title="Switch user profile"
-          >
-            {currentUser ? (
-              <>
-                <span className="text-sm">{currentUser.avatar || "🌸"}</span>
-                <span className="font-serif-title tracking-wide text-[11px] max-w-[70px] sm:max-w-[100px] truncate">
-                  {currentUser.name}
-                </span>
-              </>
-            ) : (
-              <>
-                <UserIcon className="w-3.5 h-3.5 text-[#5DBBB0]" />
-                <span className="font-serif-title tracking-wide text-[11px] text-[#3F9A90]">
-                  Login
-                </span>
-              </>
-            )}
-          </button>
-
-          {/* Add Food Button */}
-          <button
-            onClick={onOpenAddModal}
-            className="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-full bg-[#5DBBB0] hover:bg-[#3F9A90] text-white shadow-[0_4px_12px_-2px_rgba(93,187,176,0.35)] hover:shadow-[0_6px_16px_-2px_rgba(93,187,176,0.45)] transition-all text-xs font-semibold cursor-pointer active:scale-95"
-          >
-            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span className="font-serif-title tracking-wide hidden sm:inline">Add Item</span>
-          </button>
-        </div>
+        {/* User Profile Pill Button */}
+        <button
+          onClick={onOpenUserModal}
+          className="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-full bg-white hover:bg-[#EBF8F6] border border-[#5DBBB0]/40 text-[#3D322C] transition-all text-xs font-semibold cursor-pointer shadow-xs active:scale-95"
+          title="Switch user profile"
+        >
+          {currentUser ? (
+            <>
+              <span className="text-sm">{currentUser.avatar || "🌸"}</span>
+              <span className="font-serif-title tracking-wide text-[11px] sm:text-xs max-w-[90px] sm:max-w-[120px] truncate">
+                {currentUser.name}
+              </span>
+            </>
+          ) : (
+            <>
+              <UserIcon className="w-3.5 h-3.5 text-[#5DBBB0]" />
+              <span className="font-serif-title tracking-wide text-[11px] text-[#3F9A90]">
+                Login
+              </span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Year Controller Card */}
-      <div className="mt-4 p-4 rounded-2xl bg-white border border-[#5DBBB0]/25 shadow-[0_4px_20px_-3px_rgba(93,187,176,0.08)] flex flex-col gap-3.5 relative overflow-hidden">
+      <div className="mt-3.5 p-4 rounded-2xl bg-white border border-[#5DBBB0]/25 shadow-[0_4px_20px_-3px_rgba(93,187,176,0.08)] flex flex-col gap-3.5 relative overflow-hidden">
         {/* Decorative corner accent */}
         <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-[#5DBBB0]/10 to-transparent rounded-bl-full pointer-events-none" />
 

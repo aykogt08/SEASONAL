@@ -110,7 +110,6 @@ export default function Home() {
         const savedUser: UserData = JSON.parse(savedUserStr);
         setCurrentUser(savedUser);
       } else {
-        // Prompt login modal on first visit
         setIsUserModalOpen(true);
       }
     } catch {
@@ -123,7 +122,7 @@ export default function Home() {
     try {
       const userId = currentUser?.id || "anonymous";
       const savedChecksStr = localStorage.getItem(`seasonal_checks_${userId}_${year}`);
-      const fallbackChecksStr = localStorage.getItem(`seasonal_checks_${year}`); // backward compatibility
+      const fallbackChecksStr = localStorage.getItem(`seasonal_checks_${year}`);
       
       const savedChecks: Record<string, boolean> = savedChecksStr
         ? JSON.parse(savedChecksStr)
@@ -167,7 +166,7 @@ export default function Home() {
         if (Array.isArray(data.foods) && data.foods.length > 0) {
           const uId = targetUserId || "anonymous";
 
-          // Server is the true source of truth across devices!
+          // Server is the true source of truth across devices
           setFoods(data.foods);
 
           // Update local cache with server truth
@@ -443,13 +442,12 @@ export default function Home() {
           onYearChange={(newYear) => setYear(newYear)}
           totalStats={totalStats}
           themeAccent={currentMeta.accent}
-          onOpenAddModal={() => setIsAddModalOpen(true)}
           currentUser={currentUser}
           onOpenUserModal={() => setIsUserModalOpen(true)}
         />
 
         {/* Search Bar */}
-        <div className="mt-3.5">
+        <div className="mt-3">
           <SearchBar
             value={searchQuery}
             onChange={(q) => setSearchQuery(q)}
@@ -481,8 +479,8 @@ export default function Home() {
           </>
         )}
 
-        {/* Heading & Mini Stats */}
-        <div className="mt-4 sm:mt-5 mb-3 flex items-end justify-between px-1">
+        {/* Heading, Mini Stats & Quick Add Button (Right above the items grid!) */}
+        <div className="mt-4 sm:mt-5 mb-3 flex items-center justify-between px-1 gap-2">
           <div>
             {isSearching ? (
               <div>
@@ -505,23 +503,36 @@ export default function Home() {
                     <span className="w-1.5 h-1.5 rounded-full bg-[#5DBBB0] animate-ping ml-1" />
                   )}
                 </div>
-                <h2 className="font-serif-title text-lg sm:text-xl font-bold text-[#3D322C] tracking-wide mt-1">
+                <h2 className="font-serif-title text-lg sm:text-xl font-bold text-[#3D322C] tracking-wide mt-0.5">
                   {currentMeta.titleEn}
                 </h2>
               </div>
             )}
           </div>
 
-          <div className="text-right flex items-center gap-1.5">
-            <span className="text-xs font-serif-title font-semibold text-[#3D322C]">
-              {eatenInView} / {displayedFoods.length}
-            </span>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[#EBF8F6] text-[#3F9A90] border border-[#5DBBB0]/25">
-              {displayedFoods.length > 0
-                ? Math.round((eatenInView / displayedFoods.length) * 100)
-                : 0}
-              %
-            </span>
+          <div className="flex items-center gap-2">
+            {/* Stats Badge */}
+            <div className="text-right flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-[#5DBBB0]/25 shadow-xs">
+              <span className="text-[11px] sm:text-xs font-serif-title font-semibold text-[#3D322C]">
+                {eatenInView}/{displayedFoods.length}
+              </span>
+              <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-md bg-[#EBF8F6] text-[#3F9A90]">
+                {displayedFoods.length > 0
+                  ? Math.round((eatenInView / displayedFoods.length) * 100)
+                  : 0}
+                %
+              </span>
+            </div>
+
+            {/* Quick Add Food Button directly above the food items grid */}
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center gap-1 sm:gap-1.5 px-3 py-1.5 rounded-xl bg-[#5DBBB0] hover:bg-[#3F9A90] text-white shadow-[0_3px_10px_-1px_rgba(93,187,176,0.4)] transition-all text-xs font-semibold cursor-pointer active:scale-95 flex-shrink-0"
+              title="Add new seasonal food item"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span className="font-serif-title tracking-wide text-[11px] sm:text-xs">Add</span>
+            </button>
           </div>
         </div>
 
