@@ -15,8 +15,8 @@ export interface FoodWithCheck {
   eatenAt: string | null;
 }
 
-// Local file storage path for persistent storage during local development
-const DATA_DIR = path.join(process.cwd(), ".data");
+// Local file storage path for persistent storage during local development and Vercel fallback
+const DATA_DIR = process.env.VERCEL ? "/tmp" : path.join(process.cwd(), ".data");
 const DATA_FILE = path.join(DATA_DIR, "seasonal_data.json");
 
 interface LocalStoreData {
