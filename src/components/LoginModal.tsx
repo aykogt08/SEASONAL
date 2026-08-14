@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { UserData } from "@/lib/storage";
-import { Sparkles, UserPlus, Users, X, Check } from "lucide-react";
+import { Sparkles, UserPlus, Users, X, Check, Lock, KeyRound } from "lucide-react";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -21,13 +21,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 }) => {
   const [existingUsers, setExistingUsers] = useState<UserData[]>([]);
   const [newName, setNewName] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState("🌸");
+  
+  // Password prompt state for switching to an existing user
+  const [promptUser, setPromptUser] = useState<UserData | null>(null);
+  const [loginPassword, setLoginPassword] = useState("");
+
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   // Load users from cache & fetch from server
   useEffect(() => {
     if (isOpen) {
+      setPromptUser(null);
+      setLoginPassword("");
+      setErrorMessage("");
+
       try {
         const cached = localStorage.getItem("seasonal_known_users");
         if (cached) {
@@ -54,6 +64,66 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Handle clicking an existing user
+  const handleClickExistingUser = async (user: UserData) => {
+    setErrorMessage("");
+
+    // If current active user, simply close
+    if (currentUser?.id === user.id) {
+      onClose();
+      return;
+    }
+
+    // If user has password, open password prompt
+    if (user.hasPassword) {
+      setPromptUser(user);
+      setLoginPassword("");
+      return;
+    }
+
+    // If no password, login directly
+    onSelectUser(user);
+  };
+
+  // Submit password for existing user
+  const handleVerifyPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!promptUser) return;
+
+    setIsLoading(true);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "login",
+          userId: promptUser.id,
+          password: loginPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Incorrect password. Please try again.");
+      }
+
+      const data = await res.json();
+      if (data.user) {
+        onSelectUser(data.user);
+        setPromptUser(null);
+        setLoginPassword("");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication error";
+      setErrorMessage(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Create new user with optional password
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newName.trim();
@@ -69,7 +139,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       const res = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed, avatar: selectedAvatar }),
+        body: JSON.stringify({
+          name: trimmed,
+          avatar: selectedAvatar,
+          password: newPassword.trim() || undefined,
+        }),
       });
 
       if (!res.ok) {
@@ -89,6 +163,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         });
         onSelectUser(data.user);
         setNewName("");
+        setNewPassword("");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Error creating user";
@@ -112,16 +187,25 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
             <div>
               <h2 className="font-serif-title text-xl font-bold text-[#3D322C]">
-                Welcome to SEASONAL
+                {promptUser ? `Login as ${promptUser.name}` : "Welcome to SEASONAL"}
               </h2>
               <p className="text-[11px] text-[#3F9A90] font-medium">
-                Choose or create your personal journal profile
+                {promptUser
+                  ? "Enter password to access your journal"
+                  : "Choose or create your personal journal profile"}
               </p>
             </div>
           </div>
-          {currentUser && (
+          {(currentUser || promptUser) && (
             <button
-              onClick={onClose}
+              onClick={() => {
+                if (promptUser) {
+                  setPromptUser(null);
+                  setErrorMessage("");
+                } else {
+                  onClose();
+                }
+              }}
               className="w-8 h-8 rounded-full flex items-center justify-center text-[#8C7E75] hover:text-[#3D322C] hover:bg-[#EBF8F6] transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -135,98 +219,178 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           </div>
         )}
 
-        {/* Existing Users List */}
-        {existingUsers.length > 0 && (
-          <div className="mt-5">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#8C7E75] mb-2.5">
-              <Users className="w-3.5 h-3.5 text-[#5DBBB0]" />
-              <span>Switch to existing profile</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-              {existingUsers.map((user) => {
-                const isCurrent = currentUser?.id === user.id;
-                return (
-                  <button
-                    key={user.id}
-                    onClick={() => onSelectUser(user)}
-                    className={`flex items-center gap-2 p-2.5 rounded-2xl border transition-all duration-150 text-left cursor-pointer ${
-                      isCurrent
-                        ? "bg-[#EBF8F6] border-[#5DBBB0] shadow-xs"
-                        : "bg-white hover:bg-[#FAF8F5] border-[#EBE4DC] hover:border-[#5DBBB0]/50"
-                    }`}
-                  >
-                    <span className="text-xl">{user.avatar || "🌸"}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-[#3D322C] truncate font-serif-title">
-                        {user.name}
-                      </p>
-                      {isCurrent && (
-                        <p className="text-[9.5px] text-[#3F9A90] font-semibold">Active</p>
-                      )}
-                    </div>
-                    {isCurrent && <Check className="w-3.5 h-3.5 text-[#5DBBB0] stroke-[3]" />}
-                  </button>
-                );
-              })}
+        {/* View 1: Password Prompt for Selected User */}
+        {promptUser ? (
+          <form onSubmit={handleVerifyPassword} className="mt-5 space-y-4">
+            <div className="flex items-center gap-3 p-3 rounded-2xl bg-[#FAF8F5] border border-[#5DBBB0]/30">
+              <span className="text-3xl">{promptUser.avatar || "🌸"}</span>
+              <div>
+                <p className="font-serif-title text-sm font-bold text-[#3D322C]">
+                  {promptUser.name}
+                </p>
+                <p className="text-[11px] text-[#8C7E75] flex items-center gap-1 mt-0.5">
+                  <Lock className="w-3 h-3 text-[#5DBBB0]" />
+                  Protected with password
+                </p>
+              </div>
             </div>
 
-            <div className="my-5 flex items-center gap-3">
-              <div className="flex-1 h-px bg-[#EBE4DC]" />
-              <span className="text-[10px] uppercase font-bold text-[#A89C94] tracking-wider">
-                Or create new
-              </span>
-              <div className="flex-1 h-px bg-[#EBE4DC]" />
+            <div>
+              <label className="block text-xs font-semibold text-[#3D322C] mb-1.5 font-serif-title">
+                Password / PIN
+              </label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="Enter password..."
+                autoFocus
+                required
+                className="w-full px-3.5 py-2.5 rounded-xl border border-[#5DBBB0]/40 focus:border-[#5DBBB0] focus:ring-2 focus:ring-[#5DBBB0]/20 text-xs text-[#3D322C] placeholder-[#B8ADA6] outline-none transition-all"
+              />
             </div>
-          </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPromptUser(null);
+                  setErrorMessage("");
+                }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium text-[#8C7E75] hover:bg-[#F4EFEB] transition-colors cursor-pointer"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 py-2.5 rounded-xl bg-[#5DBBB0] hover:bg-[#3F9A90] text-white font-semibold text-xs tracking-wider shadow-[0_4px_12px_-2px_rgba(93,187,176,0.35)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>{isLoading ? "Verifying..." : "Unlock Journal"}</span>
+              </button>
+            </div>
+          </form>
+        ) : (
+          /* View 2: User Selection & Registration */
+          <>
+            {/* Existing Users List */}
+            {existingUsers.length > 0 && (
+              <div className="mt-5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#8C7E75] mb-2.5">
+                  <Users className="w-3.5 h-3.5 text-[#5DBBB0]" />
+                  <span>Select profile to switch</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                  {existingUsers.map((user) => {
+                    const isCurrent = currentUser?.id === user.id;
+                    return (
+                      <button
+                        key={user.id}
+                        onClick={() => handleClickExistingUser(user)}
+                        className={`flex items-center gap-2 p-2.5 rounded-2xl border transition-all duration-150 text-left cursor-pointer ${
+                          isCurrent
+                            ? "bg-[#EBF8F6] border-[#5DBBB0] shadow-xs"
+                            : "bg-white hover:bg-[#FAF8F5] border-[#EBE4DC] hover:border-[#5DBBB0]/50"
+                        }`}
+                      >
+                        <span className="text-xl">{user.avatar || "🌸"}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <p className="text-xs font-bold text-[#3D322C] truncate font-serif-title">
+                              {user.name}
+                            </p>
+                            {user.hasPassword && (
+                              <Lock className="w-2.5 h-2.5 text-[#8C7E75] flex-shrink-0" />
+                            )}
+                          </div>
+                          {isCurrent ? (
+                            <p className="text-[9.5px] text-[#3F9A90] font-semibold">Active</p>
+                          ) : user.hasPassword ? (
+                            <p className="text-[9px] text-[#A89C94]">Password</p>
+                          ) : null}
+                        </div>
+                        {isCurrent && <Check className="w-3.5 h-3.5 text-[#5DBBB0] stroke-[3]" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="my-5 flex items-center gap-3">
+                  <div className="flex-1 h-px bg-[#EBE4DC]" />
+                  <span className="text-[10px] uppercase font-bold text-[#A89C94] tracking-wider">
+                    Or create new
+                  </span>
+                  <div className="flex-1 h-px bg-[#EBE4DC]" />
+                </div>
+              </div>
+            )}
+
+            {/* Create / New User Form */}
+            <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#3D322C] mb-1 font-serif-title">
+                  Your Name / Nickname <span className="text-[#5DBBB0]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Ayaka, Emi, Ken..."
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#5DBBB0]/30 focus:border-[#5DBBB0] focus:ring-2 focus:ring-[#5DBBB0]/20 text-xs text-[#3D322C] placeholder-[#B8ADA6] outline-none transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#3D322C] mb-1 font-serif-title">
+                  Password / PIN (Recommended)
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="e.g. 4-digit PIN or password"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#5DBBB0]/30 focus:border-[#5DBBB0] focus:ring-2 focus:ring-[#5DBBB0]/20 text-xs text-[#3D322C] placeholder-[#B8ADA6] outline-none transition-all"
+                />
+                <p className="text-[10px] text-[#8C7E75] mt-1">
+                  Prevents others from accidentally editing your taste records.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#3D322C] mb-1.5 font-serif-title">
+                  Choose Avatar
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVATAR_OPTIONS.map((emoji) => (
+                    <button
+                      type="button"
+                      key={emoji}
+                      onClick={() => setSelectedAvatar(emoji)}
+                      className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all cursor-pointer ${
+                        selectedAvatar === emoji
+                          ? "bg-[#5DBBB0] text-white shadow-xs scale-105 ring-2 ring-[#5DBBB0]/30"
+                          : "bg-[#FAF8F5] hover:bg-[#EBF8F6] border border-[#EBE4DC]"
+                      }`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full mt-2 py-3 rounded-2xl bg-gradient-to-r from-[#5DBBB0] to-[#3F9A90] hover:from-[#4FA89D] hover:to-[#338279] text-white font-semibold text-xs tracking-wider shadow-[0_4px_16px_-2px_rgba(93,187,176,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-98"
+              >
+                <UserPlus className="w-4 h-4 stroke-[2.5]" />
+                <span>{isLoading ? "Creating..." : "Start My Protected Journal"}</span>
+              </button>
+            </form>
+          </>
         )}
-
-        {/* Create / New User Form */}
-        <form onSubmit={handleCreateUser} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-[#3D322C] mb-1.5 font-serif-title">
-              Your Name / Nickname
-            </label>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. Ayaka, Emi, Ken..."
-              required
-              className="w-full px-3.5 py-2.5 rounded-xl border border-[#5DBBB0]/30 focus:border-[#5DBBB0] focus:ring-2 focus:ring-[#5DBBB0]/20 text-xs text-[#3D322C] placeholder-[#B8ADA6] outline-none transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-[#3D322C] mb-1.5 font-serif-title">
-              Choose Avatar
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {AVATAR_OPTIONS.map((emoji) => (
-                <button
-                  type="button"
-                  key={emoji}
-                  onClick={() => setSelectedAvatar(emoji)}
-                  className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all cursor-pointer ${
-                    selectedAvatar === emoji
-                      ? "bg-[#5DBBB0] text-white shadow-xs scale-105 ring-2 ring-[#5DBBB0]/30"
-                      : "bg-[#FAF8F5] hover:bg-[#EBF8F6] border border-[#EBE4DC]"
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full mt-2 py-3 rounded-2xl bg-gradient-to-r from-[#5DBBB0] to-[#3F9A90] hover:from-[#4FA89D] hover:to-[#338279] text-white font-semibold text-xs tracking-wider shadow-[0_4px_16px_-2px_rgba(93,187,176,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-98"
-          >
-            <UserPlus className="w-4 h-4 stroke-[2.5]" />
-            <span>{isLoading ? "Joining..." : "Start My Seasonal Journal"}</span>
-          </button>
-        </form>
       </div>
     </div>
   );

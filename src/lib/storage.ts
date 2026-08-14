@@ -7,6 +7,7 @@ export interface UserData {
   id: string;
   name: string;
   avatar: string;
+  hasPassword?: boolean;
   createdAt?: string;
 }
 
@@ -28,7 +29,7 @@ const DATA_DIR = process.env.VERCEL ? "/tmp" : path.join(process.cwd(), ".data")
 const DATA_FILE = path.join(DATA_DIR, "seasonal_data.json");
 
 interface LocalStoreData {
-  users: UserData[];
+  users: (UserData & { password?: string | null })[];
   foods: (InitialFoodItem & { iconUrl: string; userId?: string | null })[];
   hidden: Record<string, string[]>; // key: userId, value: array of hidden food item IDs
   checks: Record<string, { isEaten: boolean; eatenAt: string | null }>;
@@ -93,7 +94,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 7000): Promise<T> {
 }
 
 // ----------------------------------------------------
-// User Management
+// User Management & Password Verification
 // ----------------------------------------------------
 
 export async function getUsers(): Promise<UserData[]> {
@@ -107,6 +108,7 @@ export async function getUsers(): Promise<UserData[]> {
           id: u.id,
           name: u.name,
           avatar: u.avatar,
+          hasPassword: Boolean(u.password),
           createdAt: u.createdAt.toISOString(),
         }));
       };
@@ -117,47 +119,172 @@ export async function getUsers(): Promise<UserData[]> {
   }
 
   const store = loadLocalStore();
-  return store.users || [];
+  return (store.users || []).map((u) => ({
+    id: u.id,
+    name: u.name,
+    avatar: u.avatar,
+    hasPassword: Boolean(u.password),
+    createdAt: u.createdAt,
+  }));
 }
 
-export async function getOrCreateUser(name: string, avatar = "🌸"): Promise<UserData> {
+export async function getOrCreateUser(
+  name: string,
+  avatar = "🌸",
+  password?: string | null
+): Promise<UserData> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("Name cannot be empty");
+  const trimmedPassword = password ? password.trim() : null;
 
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
     try {
       const dbTask = async () => {
-        const user = await prisma.user.upsert({
+        const existing = await prisma.user.findUnique({
           where: { name: trimmedName },
-          update: { avatar },
-          create: { name: trimmedName, avatar },
         });
+
+        if (existing) {
+          // If existing user has password, verify it
+          if (existing.password) {
+            if (!trimmedPassword || existing.password !== trimmedPassword) {
+              throw new Error("INCORRECT_PASSWORD");
+            }
+          } else if (trimmedPassword) {
+            // Set password if previously had none
+            await prisma.user.update({
+              where: { id: existing.id },
+              data: { password: trimmedPassword, avatar },
+            });
+          }
+
+          return {
+            id: existing.id,
+            name: existing.name,
+            avatar: existing.avatar,
+            hasPassword: Boolean(existing.password || trimmedPassword),
+            createdAt: existing.createdAt.toISOString(),
+          };
+        }
+
+        // Create new user with password
+        const newUser = await prisma.user.create({
+          data: {
+            name: trimmedName,
+            avatar,
+            password: trimmedPassword,
+          },
+        });
+
         return {
-          id: user.id,
-          name: user.name,
-          avatar: user.avatar,
-          createdAt: user.createdAt.toISOString(),
+          id: newUser.id,
+          name: newUser.name,
+          avatar: newUser.avatar,
+          hasPassword: Boolean(newUser.password),
+          createdAt: newUser.createdAt.toISOString(),
         };
       };
+
       return await withTimeout(dbTask(), 7000);
     } catch (error) {
+      if (error instanceof Error && error.message === "INCORRECT_PASSWORD") {
+        throw error;
+      }
       console.warn("DB getOrCreateUser fallback:", error);
     }
   }
 
   const store = loadLocalStore();
-  let user = (store.users || []).find((u) => u.name.toLowerCase() === trimmedName.toLowerCase());
-  if (!user) {
-    user = {
-      id: `usr-${Date.now()}`,
-      name: trimmedName,
-      avatar,
-      createdAt: new Date().toISOString(),
+  const user = (store.users || []).find((u) => u.name.toLowerCase() === trimmedName.toLowerCase());
+  if (user) {
+    if (user.password && user.password !== trimmedPassword) {
+      throw new Error("INCORRECT_PASSWORD");
+    }
+    if (!user.password && trimmedPassword) {
+      user.password = trimmedPassword;
+      saveLocalStore(store);
+    }
+    return {
+      id: user.id,
+      name: user.name,
+      avatar: user.avatar,
+      hasPassword: Boolean(user.password),
+      createdAt: user.createdAt,
     };
-    store.users = [...(store.users || []), user];
-    saveLocalStore(store);
   }
-  return user;
+
+  const newUser: UserData & { password?: string | null } = {
+    id: `usr-${Date.now()}`,
+    name: trimmedName,
+    avatar,
+    password: trimmedPassword,
+    hasPassword: Boolean(trimmedPassword),
+    createdAt: new Date().toISOString(),
+  };
+  store.users = [...(store.users || []), newUser];
+  saveLocalStore(store);
+  return {
+    id: newUser.id,
+    name: newUser.name,
+    avatar: newUser.avatar,
+    hasPassword: Boolean(newUser.password),
+    createdAt: newUser.createdAt,
+  };
+}
+
+export async function loginUserWithPassword(
+  userId: string,
+  password?: string | null
+): Promise<UserData> {
+  const trimmedPassword = password ? password.trim() : null;
+
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+        });
+
+        if (!user) throw new Error("User not found");
+
+        if (user.password) {
+          if (!trimmedPassword || user.password !== trimmedPassword) {
+            throw new Error("INCORRECT_PASSWORD");
+          }
+        }
+
+        return {
+          id: user.id,
+          name: user.name,
+          avatar: user.avatar,
+          hasPassword: Boolean(user.password),
+          createdAt: user.createdAt.toISOString(),
+        };
+      };
+      return await withTimeout(dbTask(), 7000);
+    } catch (error) {
+      if (error instanceof Error && error.message === "INCORRECT_PASSWORD") {
+        throw error;
+      }
+      console.warn("DB loginUser fallback:", error);
+    }
+  }
+
+  const store = loadLocalStore();
+  const user = (store.users || []).find((u) => u.id === userId);
+  if (!user) throw new Error("User not found");
+
+  if (user.password && user.password !== trimmedPassword) {
+    throw new Error("INCORRECT_PASSWORD");
+  }
+
+  return {
+    id: user.id,
+    name: user.name,
+    avatar: user.avatar,
+    hasPassword: Boolean(user.password),
+    createdAt: user.createdAt,
+  };
 }
 
 // ----------------------------------------------------
