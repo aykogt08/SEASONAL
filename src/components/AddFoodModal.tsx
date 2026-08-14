@@ -153,16 +153,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.heic,.heif"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
                 <Upload className="w-4 h-4 text-[#5DBBB0] mb-1 stroke-[2.5]" />
                 <span className="text-[11px] font-semibold text-[#3F9A90]">
-                  {isUploading ? "Uploading..." : "Click or Drop icon image"}
+                  {isUploading ? "Converting & Resizing..." : "Click or Drop icon image"}
                 </span>
                 <span className="text-[9px] text-[#8C7E75]">
-                  PNG, JPEG, WebP, SVG
+                  PNG, JPG, HEIC (iPhone), WebP
                 </span>
               </div>
             </div>
