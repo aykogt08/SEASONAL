@@ -34,7 +34,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await deleteFoodItem(id);
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+
+    await deleteFoodItem(id, userId || null);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete food";

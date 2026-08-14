@@ -65,23 +65,32 @@ const SEASON_META: Record<
 };
 
 // Initial synchronous fallback items
-function getInstantInitialFoods(): FoodWithCheck[] {
+function getInstantInitialFoods(userId?: string): FoodWithCheck[] {
   const defaultItems = getInitialFoodItemsWithIcons();
   let customItems: FoodWithCheck[] = [];
+  let hiddenIds: string[] = [];
+
   try {
     if (typeof window !== "undefined") {
-      const savedCustom = localStorage.getItem("seasonal_custom_foods");
+      const uId = userId || "anonymous";
+      const savedCustom = localStorage.getItem(`seasonal_custom_foods_${uId}`);
       if (savedCustom) {
         customItems = JSON.parse(savedCustom);
+      }
+      const savedHidden = localStorage.getItem(`seasonal_hidden_foods_${uId}`);
+      if (savedHidden) {
+        hiddenIds = JSON.parse(savedHidden);
       }
     }
   } catch {}
 
-  const standardItems: FoodWithCheck[] = defaultItems.map((item) => ({
-    ...item,
-    isEaten: false,
-    eatenAt: null,
-  }));
+  const standardItems: FoodWithCheck[] = defaultItems
+    .filter((item) => !hiddenIds.includes(item.id))
+    .map((item) => ({
+      ...item,
+      isEaten: false,
+      eatenAt: null,
+    }));
 
   return [...standardItems, ...customItems];
 }
@@ -95,7 +104,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   
   // Instant foods state
-  const [foods, setFoods] = useState<FoodWithCheck[]>(getInstantInitialFoods);
+  const [foods, setFoods] = useState<FoodWithCheck[]>(() => getInstantInitialFoods());
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [editingFood, setEditingFood] = useState<FoodWithCheck | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -130,13 +139,20 @@ export default function Home() {
         ? JSON.parse(fallbackChecksStr)
         : {};
 
-      const savedCustomStr = localStorage.getItem("seasonal_custom_foods");
+      const savedCustomStr = localStorage.getItem(`seasonal_custom_foods_${userId}`);
       const customItems: FoodWithCheck[] = savedCustomStr ? JSON.parse(savedCustomStr) : [];
 
+      const savedHiddenStr = localStorage.getItem(`seasonal_hidden_foods_${userId}`);
+      const hiddenIds: string[] = savedHiddenStr ? JSON.parse(savedHiddenStr) : [];
+
       setFoods((prev) => {
-        const currentCustomIds = new Set(prev.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-")).map((f) => f.id));
+        // Exclude user-hidden items
+        const filtered = prev.filter((f) => !hiddenIds.includes(f.id));
+
+        // Merge custom items
+        const currentCustomIds = new Set(filtered.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-")).map((f) => f.id));
         const missingCustom = customItems.filter((c) => !currentCustomIds.has(c.id));
-        const combined = [...prev, ...missingCustom];
+        const combined = [...filtered, ...missingCustom];
 
         return combined.map((item) => ({
           ...item,
@@ -166,10 +182,10 @@ export default function Home() {
         if (Array.isArray(data.foods) && data.foods.length > 0) {
           const uId = targetUserId || "anonymous";
 
-          // Server is the true source of truth across devices
+          // Server is the true source of truth
           setFoods(data.foods);
 
-          // Update local cache with server truth
+          // Update local check cache with server truth
           const checkMap: Record<string, boolean> = {};
           data.foods.forEach((f: FoodWithCheck) => {
             if (f.isEaten) checkMap[f.id] = true;
@@ -348,11 +364,12 @@ export default function Home() {
       iconUrl: string;
     }
   ) => {
+    const userId = currentUser?.id || "anonymous";
     setFoods((prev) => {
       const updated = prev.map((item) => (item.id === id ? { ...item, ...data } : item));
       try {
         const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
-        localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
+        localStorage.setItem(`seasonal_custom_foods_${userId}`, JSON.stringify(customItems));
       } catch {}
       return updated;
     });
@@ -369,17 +386,31 @@ export default function Home() {
   };
 
   const handleDeleteFood = async (id: string) => {
+    const userId = currentUser?.id || "anonymous";
+
+    // Optimistic user-specific delete
     setFoods((prev) => {
       const updated = prev.filter((item) => item.id !== id);
       try {
+        // If it was custom, update custom list
         const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
-        localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
+        localStorage.setItem(`seasonal_custom_foods_${userId}`, JSON.stringify(customItems));
+
+        // If it was master item, add to user's hidden list
+        if (!id.startsWith("custom-") && !id.startsWith("temp-")) {
+          let hiddenList: string[] = [];
+          const savedHidden = localStorage.getItem(`seasonal_hidden_foods_${userId}`);
+          if (savedHidden) hiddenList = JSON.parse(savedHidden);
+          if (!hiddenList.includes(id)) hiddenList.push(id);
+          localStorage.setItem(`seasonal_hidden_foods_${userId}`, JSON.stringify(hiddenList));
+        }
       } catch {}
       return updated;
     });
 
     try {
-      await fetch(`/api/foods/${id}`, {
+      const userIdParam = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : "";
+      await fetch(`/api/foods/${id}${userIdParam}`, {
         method: "DELETE",
       });
     } catch (err) {
@@ -394,6 +425,7 @@ export default function Home() {
     season: SeasonType;
     iconUrl: string;
   }) => {
+    const userId = currentUser?.id || "anonymous";
     const customId = `custom-${Date.now()}`;
     const newItem: FoodWithCheck = {
       id: customId,
@@ -408,7 +440,7 @@ export default function Home() {
       const updated = [...prev, newItem];
       try {
         const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
-        localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
+        localStorage.setItem(`seasonal_custom_foods_${userId}`, JSON.stringify(customItems));
       } catch {}
       return updated;
     });

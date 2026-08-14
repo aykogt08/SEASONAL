@@ -30,6 +30,7 @@ const DATA_FILE = path.join(DATA_DIR, "seasonal_data.json");
 interface LocalStoreData {
   users: UserData[];
   foods: (InitialFoodItem & { iconUrl: string; userId?: string | null })[];
+  hidden: Record<string, string[]>; // key: userId, value: array of hidden food item IDs
   checks: Record<string, { isEaten: boolean; eatenAt: string | null }>;
 }
 
@@ -51,6 +52,7 @@ function loadLocalStore(): LocalStoreData {
       cachedData = {
         users: parsed.users || [],
         foods: [...defaultFoods, ...customItems],
+        hidden: parsed.hidden || {},
         checks: parsed.checks || {},
       };
       return cachedData;
@@ -62,6 +64,7 @@ function loadLocalStore(): LocalStoreData {
   cachedData = {
     users: [],
     foods: defaultFoods,
+    hidden: {},
     checks: {},
   };
   return cachedData;
@@ -158,7 +161,7 @@ export async function getOrCreateUser(name: string, avatar = "🌸"): Promise<Us
 }
 
 // ----------------------------------------------------
-// Foods & Checks Management with User Support
+// Foods & Checks Management with User Support & Privacy Isolation
 // ----------------------------------------------------
 
 export async function getFoodsForYear(year: number, userId?: string | null): Promise<FoodWithCheck[]> {
@@ -176,16 +179,40 @@ export async function getFoodsForYear(year: number, userId?: string | null): Pro
           // Table might not exist yet
         }
 
-        // If DB has fewer items than our full master list, seed/sync immediately!
+        // If master table has fewer items than defaultItems, seed once
         if (count < defaultItems.length) {
           await seedDatabase();
         }
 
+        // Fetch hidden food IDs for this user
+        let hiddenIds: string[] = [];
+        if (userId) {
+          const userHidden = await prisma.userHiddenFood.findMany({
+            where: { userId },
+            select: { foodItemId: true },
+          });
+          hiddenIds = userHidden.map((h) => h.foodItemId);
+        }
+
+        // Fetch standard items OR custom items created by THIS user only
         const foods = await prisma.foodItem.findMany({
           where: {
-            OR: [
-              { userId: null }, // standard master items
-              ...(userId ? [{ userId }] : []), // custom items by this user
+            AND: [
+              {
+                OR: [
+                  { userId: null }, // standard master items
+                  ...(userId ? [{ userId }] : []), // only items created by THIS user
+                ],
+              },
+              ...(hiddenIds.length > 0
+                ? [
+                    {
+                      id: {
+                        notIn: hiddenIds,
+                      },
+                    },
+                  ]
+                : []),
             ],
           },
           orderBy: [{ season: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
@@ -222,10 +249,12 @@ export async function getFoodsForYear(year: number, userId?: string | null): Pro
     }
   }
 
-  // Fast In-Memory / Local Store
+  // Fast In-Memory / Local Store with privacy isolation
   const store = loadLocalStore();
+  const hiddenList = userId && store.hidden[userId] ? store.hidden[userId] : [];
+
   const relevantFoods = store.foods.filter(
-    (f) => !f.userId || (userId && f.userId === userId)
+    (f) => (!f.userId || (userId && f.userId === userId)) && !hiddenList.includes(f.id)
   );
 
   return relevantFoods.map((f) => {
@@ -385,13 +414,37 @@ export async function createFoodItem(
   return newItem;
 }
 
-export async function deleteFoodItem(id: string) {
+export async function deleteFoodItem(id: string, userId?: string | null) {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
     try {
       const dbTask = async () => {
-        return await prisma.foodItem.delete({
+        // If it is a custom item created by this user, delete it directly
+        const target = await prisma.foodItem.findUnique({
           where: { id },
         });
+
+        if (target && target.userId && target.userId === userId) {
+          return await prisma.foodItem.delete({
+            where: { id },
+          });
+        }
+
+        // If it is a master item, mark as hidden for THIS user
+        if (userId) {
+          return await prisma.userHiddenFood.upsert({
+            where: {
+              userId_foodItemId: {
+                userId,
+                foodItemId: id,
+              },
+            },
+            update: {},
+            create: {
+              userId,
+              foodItemId: id,
+            },
+          });
+        }
       };
       return await withTimeout(dbTask(), 7000);
     } catch (error) {
@@ -400,7 +453,17 @@ export async function deleteFoodItem(id: string) {
   }
 
   const store = loadLocalStore();
-  store.foods = store.foods.filter((f) => f.id !== id);
+  const isCustom = id.startsWith("custom-") || id.startsWith("temp-");
+
+  if (isCustom) {
+    store.foods = store.foods.filter((f) => f.id !== id);
+  } else if (userId) {
+    if (!store.hidden[userId]) store.hidden[userId] = [];
+    if (!store.hidden[userId].includes(id)) {
+      store.hidden[userId].push(id);
+    }
+  }
+
   saveLocalStore(store);
   return { success: true };
 }
