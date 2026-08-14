@@ -252,28 +252,27 @@ export default function Home() {
     season: SeasonType;
     iconUrl: string;
   }) => {
-    try {
-      const res = await fetch("/api/foods", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+    const res = await fetch("/api/foods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
 
-      if (res.ok) {
-        const result = await res.json();
-        if (result.item) {
-          setFoods((prev) => [
-            ...prev,
-            {
-              ...result.item,
-              isEaten: false,
-              eatenAt: null,
-            },
-          ]);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to add food:", err);
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || "Failed to add food");
+    }
+
+    const result = await res.json();
+    if (result.item) {
+      setFoods((prev) => [
+        ...prev,
+        {
+          ...result.item,
+          isEaten: false,
+          eatenAt: null,
+        },
+      ]);
     }
   };
 

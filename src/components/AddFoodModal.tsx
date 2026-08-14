@@ -3,6 +3,7 @@
 import React, { useState, useRef } from "react";
 import { X, Upload, Image as ImageIcon, Plus } from "lucide-react";
 import { SeasonType, CategoryType } from "@/lib/initialData";
+import { resizeImageFile } from "@/lib/imageUtils";
 
 interface AddFoodModalProps {
   initialSeason: SeasonType;
@@ -30,41 +31,44 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [iconUrl, setIconUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
-        setIconUrl(base64);
-      }
+    try {
+      setIsUploading(true);
+      setErrorMessage("");
+      const compressed = await resizeImageFile(file, 256, 0.85);
+      setIconUrl(compressed);
+    } catch (err) {
+      console.error("Image process error:", err);
+      setErrorMessage("Failed to process image.");
+    } finally {
       setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
-        setIconUrl(base64);
-      }
+    try {
+      setIsUploading(true);
+      setErrorMessage("");
+      const compressed = await resizeImageFile(file, 256, 0.85);
+      setIconUrl(compressed);
+    } catch (err) {
+      console.error("Image process error:", err);
+      setErrorMessage("Failed to process image.");
+    } finally {
       setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -72,6 +76,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     if (!nameEn.trim()) return;
 
     setIsSubmitting(true);
+    setErrorMessage("");
     try {
       await onAdd({
         nameEn: nameEn.trim().toUpperCase(),
@@ -83,6 +88,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       onClose();
     } catch (error) {
       console.error("Add food error:", error);
+      setErrorMessage("Failed to add food. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -111,6 +117,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {errorMessage && (
+          <div className="mt-3 p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-medium">
+            {errorMessage}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Icon Upload & Preview */}

@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import { X, Upload, Trash2, Image as ImageIcon, Check } from "lucide-react";
 import { FoodWithCheck } from "@/lib/storage";
 import { SeasonType, CategoryType } from "@/lib/initialData";
+import { resizeImageFile } from "@/lib/imageUtils";
 
 interface CustomizeFoodModalProps {
   food: FoodWithCheck;
@@ -37,6 +38,7 @@ export const CustomizeFoodModal: React.FC<CustomizeFoodModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -45,38 +47,35 @@ export const CustomizeFoodModal: React.FC<CustomizeFoodModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
     try {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        if (base64) {
-          setIconUrl(base64);
-        }
-        setIsUploading(false);
-      };
-      reader.readAsDataURL(file);
+      setIsUploading(true);
+      setErrorMessage("");
+      const compressed = await resizeImageFile(file, 256, 0.85);
+      setIconUrl(compressed);
     } catch (err) {
-      console.error("File read error:", err);
+      console.error("Image process error:", err);
+      setErrorMessage("Failed to process image.");
+    } finally {
       setIsUploading(false);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
-        setIconUrl(base64);
-      }
+    try {
+      setIsUploading(true);
+      setErrorMessage("");
+      const compressed = await resizeImageFile(file, 256, 0.85);
+      setIconUrl(compressed);
+    } catch (err) {
+      console.error("Image process error:", err);
+      setErrorMessage("Failed to process image.");
+    } finally {
       setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -137,6 +136,12 @@ export const CustomizeFoodModal: React.FC<CustomizeFoodModalProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {errorMessage && (
+          <div className="mt-3 p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-medium">
+            {errorMessage}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Icon Upload & Preview */}
