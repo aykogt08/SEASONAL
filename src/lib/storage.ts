@@ -30,14 +30,12 @@ const DATA_FILE = path.join(DATA_DIR, "seasonal_data.json");
 interface LocalStoreData {
   users: UserData[];
   foods: (InitialFoodItem & { iconUrl: string; userId?: string | null })[];
-  checks: Record<string, { isEaten: boolean; eatenAt: string | null }>; // key: `${userId}-${year}-${foodItemId}` or `${year}-${foodItemId}`
+  checks: Record<string, { isEaten: boolean; eatenAt: string | null }>;
 }
 
 let cachedData: LocalStoreData | null = null;
 
 function loadLocalStore(): LocalStoreData {
-  if (cachedData) return cachedData;
-
   const defaultFoods = getInitialFoodItemsWithIcons();
 
   try {
@@ -45,40 +43,20 @@ function loadLocalStore(): LocalStoreData {
       const content = fs.readFileSync(DATA_FILE, "utf-8");
       const parsed = JSON.parse(content);
       
-      const existingFoodMap = new Map<string, InitialFoodItem & { iconUrl?: string; userId?: string | null }>(
-        (parsed.foods || []).map((f: InitialFoodItem & { iconUrl?: string; userId?: string | null }) => [f.id, f])
+      const customItems = (parsed.foods || []).filter(
+        (f: InitialFoodItem & { iconUrl?: string; userId?: string | null }) =>
+          f.id.startsWith("custom-") || f.id.startsWith("temp-")
       );
-      
-      const mergedFoods: (InitialFoodItem & { iconUrl: string; userId?: string | null })[] = defaultFoods.map((defFood) => {
-        const existing = existingFoodMap.get(defFood.id);
-        if (existing) {
-          return {
-            ...defFood,
-            ...existing,
-            iconUrl: existing.iconUrl || defFood.iconUrl,
-          };
-        }
-        return defFood;
-      });
-
-      (parsed.foods || []).forEach((f: InitialFoodItem & { iconUrl?: string; userId?: string | null }) => {
-        if ((f.id.startsWith("custom-") || f.id.startsWith("temp-")) && !mergedFoods.some((m) => m.id === f.id)) {
-          mergedFoods.push({
-            ...f,
-            iconUrl: f.iconUrl || "",
-          });
-        }
-      });
 
       cachedData = {
         users: parsed.users || [],
-        foods: mergedFoods,
+        foods: [...defaultFoods, ...customItems],
         checks: parsed.checks || {},
       };
       return cachedData;
     }
   } catch (err) {
-    console.warn("Failed to read local store file, initializing new store:", err);
+    console.warn("Failed to read local store file, initializing fresh store:", err);
   }
 
   cachedData = {
@@ -184,24 +162,29 @@ export async function getOrCreateUser(name: string, avatar = "🌸"): Promise<Us
 // ----------------------------------------------------
 
 export async function getFoodsForYear(year: number, userId?: string | null): Promise<FoodWithCheck[]> {
+  const defaultItems = getInitialFoodItemsWithIcons();
+
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
     try {
       const dbTask = async () => {
         let count = 0;
         try {
-          count = await prisma.foodItem.count();
+          count = await prisma.foodItem.count({
+            where: { userId: null },
+          });
         } catch {
           // Table might not exist yet
         }
 
-        if (count === 0) {
+        // If DB has fewer items than our full master list, seed/sync immediately!
+        if (count < defaultItems.length) {
           await seedDatabase();
         }
 
         const foods = await prisma.foodItem.findMany({
           where: {
             OR: [
-              { userId: null }, // standard shared items
+              { userId: null }, // standard master items
               ...(userId ? [{ userId }] : []), // custom items by this user
             ],
           },
@@ -427,7 +410,14 @@ export async function seedDatabase() {
   for (const item of initialData) {
     await prisma.foodItem.upsert({
       where: { id: item.id },
-      update: {},
+      update: {
+        nameEn: item.nameEn,
+        nameJa: item.nameJa,
+        category: item.category,
+        season: item.season,
+        iconUrl: item.iconUrl,
+        sortOrder: item.sortOrder,
+      },
       create: {
         id: item.id,
         nameEn: item.nameEn,
