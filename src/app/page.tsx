@@ -5,12 +5,13 @@ import confetti from "canvas-confetti";
 import { Header } from "@/components/Header";
 import { SeasonTabs } from "@/components/SeasonTabs";
 import { CategoryFilter, CategoryFilterType } from "@/components/CategoryFilter";
+import { SearchBar } from "@/components/SearchBar";
 import { FoodCard } from "@/components/FoodCard";
 import { CustomizeFoodModal } from "@/components/CustomizeFoodModal";
 import { AddFoodModal } from "@/components/AddFoodModal";
 import { FoodWithCheck } from "@/lib/storage";
 import { SeasonType, CategoryType, getInitialFoodItemsWithIcons } from "@/lib/initialData";
-import { Sparkles, Calendar, Plus } from "lucide-react";
+import { Sparkles, Calendar, Plus, Search } from "lucide-react";
 
 // Helper to determine current season from month (0-indexed)
 function getCurrentSeasonFromDate(date: Date = new Date()): SeasonType {
@@ -87,12 +88,15 @@ export default function Home() {
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [currentSeason, setCurrentSeason] = useState<SeasonType>(getCurrentSeasonFromDate());
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilterType>("ALL");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   
   // Instant foods state
   const [foods, setFoods] = useState<FoodWithCheck[]>(getInstantInitialFoods);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [editingFood, setEditingFood] = useState<FoodWithCheck | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+
+  const isSearching = searchQuery.trim().length > 0;
 
   // Restore checks & custom foods from localStorage on mount & year change
   useEffect(() => {
@@ -104,7 +108,6 @@ export default function Home() {
       const customItems: FoodWithCheck[] = savedCustomStr ? JSON.parse(savedCustomStr) : [];
 
       setFoods((prev) => {
-        // Ensure all custom items are present
         const currentCustomIds = new Set(prev.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-")).map((f) => f.id));
         const missingCustom = customItems.filter((c) => !currentCustomIds.has(c.id));
         const combined = [...prev, ...missingCustom];
@@ -134,14 +137,12 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.foods) && data.foods.length > 0) {
-          // Read local checks
           let localChecks: Record<string, boolean> = {};
           try {
             const savedChecksStr = localStorage.getItem(`seasonal_checks_${targetYear}`);
             if (savedChecksStr) localChecks = JSON.parse(savedChecksStr);
           } catch {}
 
-          // Merge: server check OR local check (preserves user checks if server restarted)
           const merged = data.foods.map((serverFood: FoodWithCheck) => {
             const isLocallyEaten = localChecks[serverFood.id];
             return {
@@ -152,7 +153,6 @@ export default function Home() {
 
           setFoods(merged);
 
-          // Update local checks cache
           const checkMap: Record<string, boolean> = {};
           merged.forEach((f: FoodWithCheck) => {
             if (f.isEaten) checkMap[f.id] = true;
@@ -225,13 +225,22 @@ export default function Home() {
     return counts;
   }, [currentSeasonAllFoods]);
 
-  // Filtered foods by selected category
+  // Filtered foods by search query OR category
   const displayedFoods = useMemo(() => {
+    if (isSearching) {
+      const q = searchQuery.trim().toLowerCase();
+      return foods.filter(
+        (f) =>
+          f.nameEn.toLowerCase().includes(q) ||
+          f.nameJa.toLowerCase().includes(q)
+      );
+    }
+
     if (selectedCategory === "ALL") {
       return currentSeasonAllFoods;
     }
     return currentSeasonAllFoods.filter((f) => f.category === selectedCategory);
-  }, [currentSeasonAllFoods, selectedCategory]);
+  }, [foods, isSearching, searchQuery, selectedCategory, currentSeasonAllFoods]);
 
   // Trigger celebratory confetti
   const triggerConfetti = () => {
@@ -247,7 +256,7 @@ export default function Home() {
     }
   };
 
-  // Optimistic Toggle ON/OFF with indestructible localStorage persistence
+  // Optimistic Toggle ON/OFF with localStorage persistence
   const handleToggleFood = async (foodId: string, nextState: boolean) => {
     setFoods((prev) => {
       const updated = prev.map((item) =>
@@ -260,7 +269,6 @@ export default function Home() {
           : item
       );
 
-      // Save to localStorage immediately
       try {
         let currentChecks: Record<string, boolean> = {};
         const saved = localStorage.getItem(`seasonal_checks_${year}`);
@@ -312,16 +320,12 @@ export default function Home() {
       iconUrl: string;
     }
   ) => {
-    // Optimistic update
     setFoods((prev) => {
       const updated = prev.map((item) => (item.id === id ? { ...item, ...data } : item));
-      
-      // Update custom storage
       try {
         const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
         localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
       } catch {}
-
       return updated;
     });
 
@@ -337,7 +341,6 @@ export default function Home() {
   };
 
   const handleDeleteFood = async (id: string) => {
-    // Optimistic delete
     setFoods((prev) => {
       const updated = prev.filter((item) => item.id !== id);
       try {
@@ -413,40 +416,68 @@ export default function Home() {
           onOpenAddModal={() => setIsAddModalOpen(true)}
         />
 
-        {/* Season Navigation Tabs */}
-        <div className="mt-2">
-          <SeasonTabs
-            currentSeason={currentSeason}
-            onSelectSeason={(season) => setCurrentSeason(season)}
-            seasonCounts={seasonCounts}
+        {/* Search Bar */}
+        <div className="mt-3.5">
+          <SearchBar
+            value={searchQuery}
+            onChange={(q) => setSearchQuery(q)}
+            placeholder="Search tastes (e.g. 桃, Strawberry, 筍, 鰹)..."
           />
         </div>
 
-        {/* Category Filter Pills (Fruit / Veggie / Seafood / Other) */}
-        <div className="mt-3">
-          <CategoryFilter
-            selectedCategory={selectedCategory}
-            onSelectCategory={(cat) => setSelectedCategory(cat)}
-            categoryCounts={categoryCounts}
-            themeAccent={currentMeta.accent}
-          />
-        </div>
+        {/* Season Navigation Tabs & Category Filters (Hidden when searching to focus on search results) */}
+        {!isSearching && (
+          <>
+            {/* Season Navigation Tabs */}
+            <div className="mt-3">
+              <SeasonTabs
+                currentSeason={currentSeason}
+                onSelectSeason={(season) => setCurrentSeason(season)}
+                seasonCounts={seasonCounts}
+              />
+            </div>
 
-        {/* Current Season Heading & Mini Stats */}
+            {/* Category Filter Pills (Fruit / Veggie / Seafood / Other) */}
+            <div className="mt-3">
+              <CategoryFilter
+                selectedCategory={selectedCategory}
+                onSelectCategory={(cat) => setSelectedCategory(cat)}
+                categoryCounts={categoryCounts}
+                themeAccent={currentMeta.accent}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Heading & Mini Stats */}
         <div className="mt-4 sm:mt-5 mb-3 flex items-end justify-between px-1">
           <div>
-            <div className="flex items-center gap-1.5 text-xs text-[#3F9A90] font-semibold tracking-wide">
-              <span>{currentMeta.emoji}</span>
-              <span className="px-2 py-0.5 rounded-full bg-[#EBF8F6] border border-[#5DBBB0]/30">
-                {currentMeta.subEn}
-              </span>
-              {isSyncing && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[#5DBBB0] animate-ping ml-1" />
-              )}
-            </div>
-            <h2 className="font-serif-title text-lg sm:text-xl font-bold text-[#3D322C] tracking-wide mt-1">
-              {currentMeta.titleEn}
-            </h2>
+            {isSearching ? (
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-[#3F9A90] font-semibold tracking-wide">
+                  <Search className="w-3.5 h-3.5 text-[#5DBBB0]" />
+                  <span>ALL SEASONS SEARCH</span>
+                </div>
+                <h2 className="font-serif-title text-base sm:text-lg font-bold text-[#3D322C] tracking-wide mt-0.5">
+                  &ldquo;{searchQuery}&rdquo; Results
+                </h2>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-[#3F9A90] font-semibold tracking-wide">
+                  <span>{currentMeta.emoji}</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#EBF8F6] border border-[#5DBBB0]/30">
+                    {currentMeta.subEn}
+                  </span>
+                  {isSyncing && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#5DBBB0] animate-ping ml-1" />
+                  )}
+                </div>
+                <h2 className="font-serif-title text-lg sm:text-xl font-bold text-[#3D322C] tracking-wide mt-1">
+                  {currentMeta.titleEn}
+                </h2>
+              </div>
+            )}
           </div>
 
           <div className="text-right flex items-center gap-1.5">
@@ -462,25 +493,36 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Food Items Grid - Instant Zero-Waiting Rendering */}
+        {/* Food Items Grid */}
         {displayedFoods.length === 0 ? (
           <div className="w-full p-8 rounded-2xl bg-white border border-[#5DBBB0]/30 text-center my-4 flex flex-col items-center gap-3 shadow-xs">
             <Calendar className="w-8 h-8 text-[#5DBBB0]" />
             <div>
               <p className="font-serif-title text-sm font-semibold text-[#3D322C]">
-                No items found in this category
+                {isSearching ? `No items matching "${searchQuery}"` : "No items found in this category"}
               </p>
               <p className="text-xs text-[#8C7E75] mt-0.5">
-                Add your favorite seasonal fruit or food to get started!
+                {isSearching
+                  ? "Try searching in Japanese (e.g. 桃) or English (e.g. Peach)"
+                  : "Add your favorite seasonal fruit or food to get started!"}
               </p>
             </div>
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5DBBB0] hover:bg-[#3F9A90] text-white text-xs font-semibold shadow-[0_4px_12px_-2px_rgba(93,187,176,0.35)] transition-all cursor-pointer mt-1"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Add New Item</span>
-            </button>
+            {isSearching ? (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="px-4 py-2 rounded-xl bg-[#EBF8F6] text-[#3F9A90] text-xs font-semibold hover:bg-[#5DBBB0] hover:text-white transition-all cursor-pointer mt-1"
+              >
+                Clear Search
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsAddModalOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5DBBB0] hover:bg-[#3F9A90] text-white text-xs font-semibold shadow-[0_4px_12px_-2px_rgba(93,187,176,0.35)] transition-all cursor-pointer mt-1"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Add New Item</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-6 gap-2.5 sm:gap-3.5">
@@ -488,9 +530,10 @@ export default function Home() {
               <FoodCard
                 key={food.id}
                 food={food}
-                themeAccent={currentMeta.accent}
+                themeAccent={SEASON_META[food.season]?.accent || currentMeta.accent}
                 onToggle={handleToggleFood}
                 onEdit={(target) => setEditingFood(target)}
+                showSeasonBadge={isSearching}
               />
             ))}
           </div>
