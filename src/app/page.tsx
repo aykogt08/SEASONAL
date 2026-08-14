@@ -61,14 +61,26 @@ const SEASON_META: Record<
   },
 };
 
-// Initial synchronous fallback items so UI renders in 0ms without waiting for network
+// Initial synchronous fallback items
 function getInstantInitialFoods(): FoodWithCheck[] {
   const defaultItems = getInitialFoodItemsWithIcons();
-  return defaultItems.map((item) => ({
+  let customItems: FoodWithCheck[] = [];
+  try {
+    if (typeof window !== "undefined") {
+      const savedCustom = localStorage.getItem("seasonal_custom_foods");
+      if (savedCustom) {
+        customItems = JSON.parse(savedCustom);
+      }
+    }
+  } catch {}
+
+  const standardItems: FoodWithCheck[] = defaultItems.map((item) => ({
     ...item,
     isEaten: false,
     eatenAt: null,
   }));
+
+  return [...standardItems, ...customItems];
 }
 
 export default function Home() {
@@ -76,32 +88,38 @@ export default function Home() {
   const [currentSeason, setCurrentSeason] = useState<SeasonType>(getCurrentSeasonFromDate());
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilterType>("ALL");
   
-  // Instant foods state - initialized synchronously with all items!
+  // Instant foods state
   const [foods, setFoods] = useState<FoodWithCheck[]>(getInstantInitialFoods);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [editingFood, setEditingFood] = useState<FoodWithCheck | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
-  // Restore checks from localStorage on mount for instant state
+  // Restore checks & custom foods from localStorage on mount & year change
   useEffect(() => {
     try {
       const savedChecksStr = localStorage.getItem(`seasonal_checks_${year}`);
-      if (savedChecksStr) {
-        const savedChecks: Record<string, boolean> = JSON.parse(savedChecksStr);
-        setFoods((prev) =>
-          prev.map((item) =>
-            savedChecks[item.id] !== undefined
-              ? { ...item, isEaten: savedChecks[item.id] }
-              : item
-          )
-        );
-      }
+      const savedCustomStr = localStorage.getItem("seasonal_custom_foods");
+      
+      const savedChecks: Record<string, boolean> = savedChecksStr ? JSON.parse(savedChecksStr) : {};
+      const customItems: FoodWithCheck[] = savedCustomStr ? JSON.parse(savedCustomStr) : [];
+
+      setFoods((prev) => {
+        // Ensure all custom items are present
+        const currentCustomIds = new Set(prev.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-")).map((f) => f.id));
+        const missingCustom = customItems.filter((c) => !currentCustomIds.has(c.id));
+        const combined = [...prev, ...missingCustom];
+
+        return combined.map((item) => ({
+          ...item,
+          isEaten: savedChecks[item.id] !== undefined ? savedChecks[item.id] : item.isEaten,
+        }));
+      });
     } catch {
       // Ignored
     }
   }, [year]);
 
-  // Background fetch from server/DB
+  // Background fetch from server/DB with smart client-side check merge
   const fetchFoods = useCallback(async (targetYear: number) => {
     try {
       setIsSyncing(true);
@@ -116,23 +134,36 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.foods) && data.foods.length > 0) {
-          setFoods(data.foods);
-          
-          // Cache checks in localStorage
+          // Read local checks
+          let localChecks: Record<string, boolean> = {};
+          try {
+            const savedChecksStr = localStorage.getItem(`seasonal_checks_${targetYear}`);
+            if (savedChecksStr) localChecks = JSON.parse(savedChecksStr);
+          } catch {}
+
+          // Merge: server check OR local check (preserves user checks if server restarted)
+          const merged = data.foods.map((serverFood: FoodWithCheck) => {
+            const isLocallyEaten = localChecks[serverFood.id];
+            return {
+              ...serverFood,
+              isEaten: isLocallyEaten !== undefined ? isLocallyEaten : serverFood.isEaten,
+            };
+          });
+
+          setFoods(merged);
+
+          // Update local checks cache
           const checkMap: Record<string, boolean> = {};
-          data.foods.forEach((f: FoodWithCheck) => {
+          merged.forEach((f: FoodWithCheck) => {
             if (f.isEaten) checkMap[f.id] = true;
           });
           try {
-            localStorage.setItem(
-              `seasonal_checks_${targetYear}`,
-              JSON.stringify(checkMap)
-            );
+            localStorage.setItem(`seasonal_checks_${targetYear}`, JSON.stringify(checkMap));
           } catch {}
         }
       }
     } catch (err) {
-      console.warn("Sync foods notice (using local offline state):", err);
+      console.warn("Sync foods note (using local offline state):", err);
     } finally {
       setIsSyncing(false);
     }
@@ -216,7 +247,7 @@ export default function Home() {
     }
   };
 
-  // Optimistic Toggle ON/OFF
+  // Optimistic Toggle ON/OFF with indestructible localStorage persistence
   const handleToggleFood = async (foodId: string, nextState: boolean) => {
     setFoods((prev) => {
       const updated = prev.map((item) =>
@@ -231,11 +262,16 @@ export default function Home() {
 
       // Save to localStorage immediately
       try {
-        const checkMap: Record<string, boolean> = {};
-        updated.forEach((f) => {
-          if (f.isEaten) checkMap[f.id] = true;
-        });
-        localStorage.setItem(`seasonal_checks_${year}`, JSON.stringify(checkMap));
+        let currentChecks: Record<string, boolean> = {};
+        const saved = localStorage.getItem(`seasonal_checks_${year}`);
+        if (saved) currentChecks = JSON.parse(saved);
+
+        if (nextState) {
+          currentChecks[foodId] = true;
+        } else {
+          delete currentChecks[foodId];
+        }
+        localStorage.setItem(`seasonal_checks_${year}`, JSON.stringify(currentChecks));
       } catch {}
 
       return updated;
@@ -277,9 +313,17 @@ export default function Home() {
     }
   ) => {
     // Optimistic update
-    setFoods((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...data } : item))
-    );
+    setFoods((prev) => {
+      const updated = prev.map((item) => (item.id === id ? { ...item, ...data } : item));
+      
+      // Update custom storage
+      try {
+        const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
+        localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
+      } catch {}
+
+      return updated;
+    });
 
     try {
       await fetch(`/api/foods/${id}`, {
@@ -294,7 +338,14 @@ export default function Home() {
 
   const handleDeleteFood = async (id: string) => {
     // Optimistic delete
-    setFoods((prev) => prev.filter((item) => item.id !== id));
+    setFoods((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      try {
+        const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
+        localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
+      } catch {}
+      return updated;
+    });
 
     try {
       await fetch(`/api/foods/${id}`, {
@@ -312,32 +363,30 @@ export default function Home() {
     season: SeasonType;
     iconUrl: string;
   }) => {
-    const tempId = `temp-${Date.now()}`;
-    const optimisticItem: FoodWithCheck = {
-      id: tempId,
+    const customId = `custom-${Date.now()}`;
+    const newItem: FoodWithCheck = {
+      id: customId,
       ...data,
       sortOrder: foods.length + 1,
       isEaten: false,
       eatenAt: null,
     };
 
-    setFoods((prev) => [...prev, optimisticItem]);
+    setFoods((prev) => {
+      const updated = [...prev, newItem];
+      try {
+        const customItems = updated.filter((f) => f.id.startsWith("custom-") || f.id.startsWith("temp-"));
+        localStorage.setItem("seasonal_custom_foods", JSON.stringify(customItems));
+      } catch {}
+      return updated;
+    });
 
     try {
-      const res = await fetch("/api/foods", {
+      await fetch("/api/foods", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-
-      if (res.ok) {
-        const result = await res.json();
-        if (result.item) {
-          setFoods((prev) =>
-            prev.map((f) => (f.id === tempId ? { ...f, id: result.item.id } : f))
-          );
-        }
-      }
     } catch (err) {
       console.warn("Add food background sync note:", err);
     }
