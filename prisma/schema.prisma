@@ -1,0 +1,51 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Season {
+  SPRING
+  SUMMER
+  AUTUMN
+  WINTER
+}
+
+enum Category {
+  FRUIT
+  VEGETABLE
+  SEAFOOD
+  OTHER
+}
+
+model FoodItem {
+  id        String      @id @default(cuid())
+  nameEn    String      // English label (e.g., WHITE PEACH)
+  nameJa    String      // Japanese sub label (e.g., 白桃)
+  category  Category    @default(FRUIT)
+  season    Season      // SPRING, SUMMER, AUTUMN, WINTER
+  iconUrl   String      @db.Text // Custom image or preset SVG/data URI
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  checks    FoodCheck[]
+}
+
+model FoodCheck {
+  id         String    @id @default(cuid())
+  year       Int       // Year (e.g., 2026)
+  foodItemId String
+  foodItem   FoodItem  @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+  isEaten    Boolean   @default(false)
+  eatenAt    DateTime?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([year, foodItemId])
+  @@index([year])
+}

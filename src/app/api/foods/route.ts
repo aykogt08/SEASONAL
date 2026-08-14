@@ -1,0 +1,41 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getFoodsForYear, createFoodItem } from "@/lib/storage";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const yearParam = searchParams.get("year");
+    const currentYear = new Date().getFullYear();
+    const year = yearParam ? parseInt(yearParam, 10) : currentYear;
+
+    const foods = await getFoodsForYear(year);
+    return NextResponse.json({ foods, year });
+  } catch (error: any) {
+    console.error("Error fetching foods:", error);
+    return NextResponse.json({ error: error.message || "Failed to fetch foods" }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { nameEn, nameJa, category, season, iconUrl } = body;
+
+    if (!nameEn || !nameJa || !category || !season) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const newItem = await createFoodItem({
+      nameEn: nameEn.toUpperCase(),
+      nameJa,
+      category,
+      season,
+      iconUrl: iconUrl || "",
+    });
+
+    return NextResponse.json({ item: newItem });
+  } catch (error: any) {
+    console.error("Error creating food:", error);
+    return NextResponse.json({ error: error.message || "Failed to create food" }, { status: 500 });
+  }
+}
