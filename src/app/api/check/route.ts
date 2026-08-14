@@ -12,8 +12,9 @@ export async function POST(request: NextRequest) {
 
     const result = await toggleFoodCheck(year, foodItemId, isEaten);
     return NextResponse.json({ result });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to toggle check";
     console.error("Error toggling check:", error);
-    return NextResponse.json({ error: error.message || "Failed to toggle check" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

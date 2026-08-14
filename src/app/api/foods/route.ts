@@ -10,9 +10,10 @@ export async function GET(request: NextRequest) {
 
     const foods = await getFoodsForYear(year);
     return NextResponse.json({ foods, year });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to fetch foods";
     console.error("Error fetching foods:", error);
-    return NextResponse.json({ error: error.message || "Failed to fetch foods" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -34,8 +35,9 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ item: newItem });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create food";
     console.error("Error creating food:", error);
-    return NextResponse.json({ error: error.message || "Failed to create food" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

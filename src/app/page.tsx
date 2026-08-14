@@ -278,12 +278,6 @@ export default function Home() {
   };
 
   const currentMeta = SEASON_META[currentSeason];
-  const seasonStats = seasonCounts[currentSeason] || { total: 0, eaten: 0 };
-  const seasonPercentage =
-    seasonStats.total > 0
-      ? Math.round((seasonStats.eaten / seasonStats.total) * 100)
-      : 0;
-
   const eatenInView = displayedFoods.filter((f) => f.isEaten).length;
 
   return (

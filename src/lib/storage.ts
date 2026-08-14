@@ -20,7 +20,7 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 const DATA_FILE = path.join(DATA_DIR, "seasonal_data.json");
 
 interface LocalStoreData {
-  foods: (InitialFoodItem & { iconUrl?: string })[];
+  foods: (InitialFoodItem & { iconUrl: string })[];
   checks: Record<string, { isEaten: boolean; eatenAt: string | null }>;
 }
 
@@ -34,16 +34,15 @@ function loadLocalStore(): LocalStoreData {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const content = fs.readFileSync(DATA_FILE, "utf-8");
-      const parsed: LocalStoreData = JSON.parse(content);
+      const parsed = JSON.parse(content);
       
-      // Merge with default foods to ensure all new items are present while keeping custom ones and checks
-      const existingFoodMap = new Map(parsed.foods.map((f) => [f.id, f]));
+      const existingFoodMap = new Map<string, InitialFoodItem & { iconUrl?: string }>(
+        (parsed.foods || []).map((f: InitialFoodItem & { iconUrl?: string }) => [f.id, f])
+      );
       
-      // Ensure all standard initial foods exist
-      const mergedFoods = defaultFoods.map((defFood) => {
+      const mergedFoods: (InitialFoodItem & { iconUrl: string })[] = defaultFoods.map((defFood) => {
         const existing = existingFoodMap.get(defFood.id);
         if (existing) {
-          // Keep user-customized properties if any
           return {
             ...defFood,
             ...existing,
@@ -53,8 +52,7 @@ function loadLocalStore(): LocalStoreData {
         return defFood;
       });
 
-      // Also append any custom foods created by user (id starts with 'custom-')
-      parsed.foods.forEach((f) => {
+      (parsed.foods || []).forEach((f: InitialFoodItem & { iconUrl?: string }) => {
         if (f.id.startsWith("custom-") && !mergedFoods.some((m) => m.id === f.id)) {
           mergedFoods.push({
             ...f,
@@ -136,7 +134,6 @@ export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
     console.warn("Falling back to local persistent store:", error);
   }
 
-  // Local persistent store
   const store = loadLocalStore();
   return store.foods.map((f) => {
     const key = `${year}-${f.id}`;
@@ -147,7 +144,7 @@ export async function getFoodsForYear(year: number): Promise<FoodWithCheck[]> {
       nameJa: f.nameJa,
       category: f.category,
       season: f.season,
-      iconUrl: (f as any).iconUrl || "",
+      iconUrl: f.iconUrl || "",
       sortOrder: f.sortOrder,
       isEaten: check ? check.isEaten : false,
       eatenAt: check ? check.eatenAt : null,
@@ -192,7 +189,6 @@ export async function toggleFoodCheck(
     console.warn("DB toggle failed, saving to local store:", error);
   }
 
-  // Local persistent store
   const store = loadLocalStore();
   const key = `${year}-${foodItemId}`;
   const record = { isEaten, eatenAt: eatenAt ? eatenAt.toISOString() : null };
@@ -222,7 +218,6 @@ export async function updateFoodItem(
     console.warn("DB update failed, updating local store:", error);
   }
 
-  // Local persistent store
   const store = loadLocalStore();
   const idx = store.foods.findIndex((f) => f.id === id);
   if (idx !== -1) {
@@ -230,7 +225,8 @@ export async function updateFoodItem(
       ...store.foods[idx],
       ...data,
       iconKey: store.foods[idx].iconKey,
-    } as any;
+      iconUrl: data.iconUrl || store.foods[idx].iconUrl,
+    };
     saveLocalStore(store);
     return store.foods[idx];
   }
@@ -263,16 +259,15 @@ export async function createFoodItem(data: {
     console.warn("DB create failed, adding to local store:", error);
   }
 
-  // Local persistent store
   const store = loadLocalStore();
   const newId = `custom-${Date.now()}`;
-  const newItem = {
+  const newItem: InitialFoodItem & { iconUrl: string } = {
     id: newId,
     ...data,
     iconKey: "custom",
     sortOrder: store.foods.filter((f) => f.season === data.season).length + 1,
   };
-  store.foods.push(newItem as any);
+  store.foods.push(newItem);
   saveLocalStore(store);
   return newItem;
 }

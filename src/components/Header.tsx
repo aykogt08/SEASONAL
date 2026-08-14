@@ -113,9 +113,10 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Progress Bar Line */}
           <div className="w-full h-2 bg-[#EBF8F6] rounded-full overflow-hidden p-0.5 border border-[#5DBBB0]/20">
             <div
-              className="h-full rounded-full transition-all duration-500 ease-out bg-gradient-to-r from-[#5DBBB0] to-[#3F9A90] shadow-xs"
+              className="h-full rounded-full transition-all duration-500 ease-out shadow-xs"
               style={{
                 width: `${percentage}%`,
+                backgroundColor: themeAccent,
               }}
             />
           </div>

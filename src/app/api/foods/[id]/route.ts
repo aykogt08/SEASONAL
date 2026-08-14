@@ -19,9 +19,10 @@ export async function PATCH(
     });
 
     return NextResponse.json({ item: updated });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to update food";
     console.error("Error updating food:", error);
-    return NextResponse.json({ error: error.message || "Failed to update food" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -33,8 +34,9 @@ export async function DELETE(
     const { id } = await params;
     await deleteFoodItem(id);
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to delete food";
     console.error("Error deleting food:", error);
-    return NextResponse.json({ error: error.message || "Failed to delete food" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

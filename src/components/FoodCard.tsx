@@ -21,7 +21,7 @@ export const FoodCard: React.FC<FoodCardProps> = ({
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isLongPressRef = useRef(false);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = () => {
     if (isLongPressRef.current) {
       isLongPressRef.current = false;
       return;
