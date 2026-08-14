@@ -154,7 +154,7 @@ export default function Home() {
     try {
       setIsSyncing(true);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
 
       const userIdParam = targetUserId ? `&userId=${encodeURIComponent(targetUserId)}` : "";
       const res = await fetch(`/api/foods?year=${targetYear}${userIdParam}`, {
@@ -166,24 +166,13 @@ export default function Home() {
         const data = await res.json();
         if (Array.isArray(data.foods) && data.foods.length > 0) {
           const uId = targetUserId || "anonymous";
-          let localChecks: Record<string, boolean> = {};
-          try {
-            const savedChecksStr = localStorage.getItem(`seasonal_checks_${uId}_${targetYear}`);
-            if (savedChecksStr) localChecks = JSON.parse(savedChecksStr);
-          } catch {}
 
-          const merged = data.foods.map((serverFood: FoodWithCheck) => {
-            const isLocallyEaten = localChecks[serverFood.id];
-            return {
-              ...serverFood,
-              isEaten: isLocallyEaten !== undefined ? isLocallyEaten : serverFood.isEaten,
-            };
-          });
+          // Server is the true source of truth across devices!
+          setFoods(data.foods);
 
-          setFoods(merged);
-
+          // Update local cache with server truth
           const checkMap: Record<string, boolean> = {};
-          merged.forEach((f: FoodWithCheck) => {
+          data.foods.forEach((f: FoodWithCheck) => {
             if (f.isEaten) checkMap[f.id] = true;
           });
           try {
