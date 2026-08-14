@@ -101,8 +101,8 @@ function saveLocalStore(data: LocalStoreData) {
   }
 }
 
-// Timeout helper to avoid DB connection hanging on Vercel
-function withTimeout<T>(promise: Promise<T>, timeoutMs = 1500): Promise<T> {
+// Timeout helper to avoid DB connection hanging on Vercel (allows 7s for Neon cold starts)
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 7000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
@@ -129,7 +129,7 @@ export async function getUsers(): Promise<UserData[]> {
           createdAt: u.createdAt.toISOString(),
         }));
       };
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB getUsers fallback:", error);
     }
@@ -158,7 +158,7 @@ export async function getOrCreateUser(name: string, avatar = "🌸"): Promise<Us
           createdAt: user.createdAt.toISOString(),
         };
       };
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB getOrCreateUser fallback:", error);
     }
@@ -233,7 +233,7 @@ export async function getFoodsForYear(year: number, userId?: string | null): Pro
         });
       };
 
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB fetch failed/timed out, using fast store fallback:", error);
     }
@@ -302,7 +302,7 @@ export async function toggleFoodCheck(
         };
       };
 
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB toggle failed/timed out, saving to fast store:", error);
     }
@@ -334,7 +334,7 @@ export async function updateFoodItem(
           data,
         });
       };
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB update failed, updating local store:", error);
     }
@@ -382,7 +382,7 @@ export async function createFoodItem(
           },
         });
       };
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB create failed, adding to fast store:", error);
     }
@@ -410,7 +410,7 @@ export async function deleteFoodItem(id: string) {
           where: { id },
         });
       };
-      return await withTimeout(dbTask(), 2000);
+      return await withTimeout(dbTask(), 7000);
     } catch (error) {
       console.warn("DB delete failed, removing from fast store:", error);
     }

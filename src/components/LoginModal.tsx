@@ -25,14 +25,27 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Fetch registered users
+  // Load users from cache & fetch from server
   useEffect(() => {
     if (isOpen) {
+      try {
+        const cached = localStorage.getItem("seasonal_known_users");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setExistingUsers(parsed);
+          }
+        }
+      } catch {}
+
       fetch("/api/users")
         .then((res) => res.json())
         .then((data) => {
-          if (Array.isArray(data.users)) {
+          if (Array.isArray(data.users) && data.users.length > 0) {
             setExistingUsers(data.users);
+            try {
+              localStorage.setItem("seasonal_known_users", JSON.stringify(data.users));
+            } catch {}
           }
         })
         .catch((err) => console.warn("Failed to load users:", err));
@@ -66,6 +79,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
       const data = await res.json();
       if (data.user) {
+        setExistingUsers((prev) => {
+          const exists = prev.some((u) => u.id === data.user.id);
+          const updated = exists ? prev : [...prev, data.user];
+          try {
+            localStorage.setItem("seasonal_known_users", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
         onSelectUser(data.user);
         setNewName("");
       }

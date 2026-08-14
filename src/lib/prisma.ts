@@ -1,34 +1,14 @@
 import { PrismaClient } from "@prisma/client";
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import ws from "ws";
-
-if (typeof window === "undefined" && !process.env.VERCEL) {
-  neonConfig.webSocketConstructor = ws;
-}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-function createPrismaClient(): PrismaClient {
-  const connectionString = process.env.DATABASE_URL;
-
-  if (connectionString && connectionString.startsWith("postgres")) {
-    try {
-      const pool = new Pool({ connectionString });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const adapter = new PrismaNeon(pool as any);
-      return new PrismaClient({ adapter });
-    } catch {
-      return new PrismaClient();
-    }
-  }
-
-  return new PrismaClient();
-}
-
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+  });
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
