@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { UserData } from "@/lib/storage";
-import { Sparkles, UserPlus, Users, X, Check, Lock, KeyRound } from "lucide-react";
+import { Sparkles, UserPlus, Users, X, Check, Lock, KeyRound, Trash2 } from "lucide-react";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -28,6 +28,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [promptUser, setPromptUser] = useState<UserData | null>(null);
   const [loginPassword, setLoginPassword] = useState("");
 
+  // Delete user prompt state
+  const [deletingUser, setDeletingUser] = useState<UserData | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -35,7 +39,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setPromptUser(null);
+      setDeletingUser(null);
       setLoginPassword("");
+      setDeletePassword("");
       setErrorMessage("");
 
       try {
@@ -123,6 +129,64 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
+  // Trigger delete prompt for a user
+  const handleStartDeleteUser = (user: UserData, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setErrorMessage("");
+    setDeletingUser(user);
+    setDeletePassword("");
+  };
+
+  // Confirm delete user
+  const handleConfirmDeleteUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletingUser) return;
+
+    setIsLoading(true);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: deletingUser.id,
+          password: deletePassword.trim() || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to delete user profile.");
+      }
+
+      // Remove from state
+      const updated = existingUsers.filter((u) => u.id !== deletingUser.id);
+      setExistingUsers(updated);
+      try {
+        localStorage.setItem("seasonal_known_users", JSON.stringify(updated));
+      } catch {}
+
+      // If active user was deleted, clear current user
+      if (currentUser?.id === deletingUser.id) {
+        try {
+          localStorage.removeItem("seasonal_current_user");
+        } catch {}
+        if (updated.length > 0) {
+          onSelectUser(updated[0]);
+        }
+      }
+
+      setDeletingUser(null);
+      setDeletePassword("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Error deleting user";
+      setErrorMessage(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Create new user with optional password
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,19 +251,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
             <div>
               <h2 className="font-serif-title text-xl font-bold text-[#3D322C]">
-                {promptUser ? `Login as ${promptUser.name}` : "Welcome to SEASONAL"}
+                {deletingUser
+                  ? `Delete ${deletingUser.name}`
+                  : promptUser
+                  ? `Login as ${promptUser.name}`
+                  : "Welcome to SEASONAL"}
               </h2>
               <p className="text-[11px] text-[#3F9A90] font-medium">
-                {promptUser
+                {deletingUser
+                  ? "Permanently remove profile and records"
+                  : promptUser
                   ? "Enter password to access your journal"
                   : "Choose or create your personal journal profile"}
               </p>
             </div>
           </div>
-          {(currentUser || promptUser) && (
+          {(currentUser || promptUser || deletingUser) && (
             <button
               onClick={() => {
-                if (promptUser) {
+                if (deletingUser) {
+                  setDeletingUser(null);
+                  setErrorMessage("");
+                } else if (promptUser) {
                   setPromptUser(null);
                   setErrorMessage("");
                 } else {
@@ -219,8 +292,61 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           </div>
         )}
 
-        {/* View 1: Password Prompt for Selected User */}
-        {promptUser ? (
+        {/* View 1: Delete User Confirmation Prompt */}
+        {deletingUser ? (
+          <form onSubmit={handleConfirmDeleteUser} className="mt-5 space-y-4">
+            <div className="p-3.5 rounded-2xl bg-red-50/70 border border-red-200 flex items-center gap-3">
+              <span className="text-3xl">{deletingUser.avatar || "🌸"}</span>
+              <div>
+                <p className="font-serif-title text-sm font-bold text-[#3D322C]">
+                  Delete &ldquo;{deletingUser.name}&rdquo;?
+                </p>
+                <p className="text-[11px] text-red-600 font-medium mt-0.5">
+                  All personal taste checks and custom foods will be permanently removed.
+                </p>
+              </div>
+            </div>
+
+            {deletingUser.hasPassword && (
+              <div>
+                <label className="block text-xs font-semibold text-[#3D322C] mb-1.5 font-serif-title">
+                  Confirm Password to Delete
+                </label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Enter password..."
+                  autoFocus
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-200 text-xs text-[#3D322C] placeholder-[#B8ADA6] outline-none transition-all"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeletingUser(null);
+                  setErrorMessage("");
+                }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium text-[#8C7E75] hover:bg-[#F4EFEB] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-xs tracking-wider shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isLoading ? "Deleting..." : "Permanently Delete"}</span>
+              </button>
+            </div>
+          </form>
+        ) : promptUser ? (
+          /* View 2: Password Prompt for Selected User */
           <form onSubmit={handleVerifyPassword} className="mt-5 space-y-4">
             <div className="flex items-center gap-3 p-3 rounded-2xl bg-[#FAF8F5] border border-[#5DBBB0]/30">
               <span className="text-3xl">{promptUser.avatar || "🌸"}</span>
@@ -272,7 +398,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
           </form>
         ) : (
-          /* View 2: User Selection & Registration */
+          /* View 3: User Selection & Registration */
           <>
             {/* Existing Users List */}
             {existingUsers.length > 0 && (
@@ -281,21 +407,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <Users className="w-3.5 h-3.5 text-[#5DBBB0]" />
                   <span>Select profile to switch</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
                   {existingUsers.map((user) => {
                     const isCurrent = currentUser?.id === user.id;
                     return (
-                      <button
+                      <div
                         key={user.id}
                         onClick={() => handleClickExistingUser(user)}
-                        className={`flex items-center gap-2 p-2.5 rounded-2xl border transition-all duration-150 text-left cursor-pointer ${
+                        className={`group relative flex items-center gap-2 p-2.5 rounded-2xl border transition-all duration-150 text-left cursor-pointer ${
                           isCurrent
                             ? "bg-[#EBF8F6] border-[#5DBBB0] shadow-xs"
                             : "bg-white hover:bg-[#FAF8F5] border-[#EBE4DC] hover:border-[#5DBBB0]/50"
                         }`}
                       >
-                        <span className="text-xl">{user.avatar || "🌸"}</span>
-                        <div className="flex-1 min-w-0">
+                        <span className="text-xl flex-shrink-0">{user.avatar || "🌸"}</span>
+                        <div className="flex-1 min-w-0 pr-4">
                           <div className="flex items-center gap-1">
                             <p className="text-xs font-bold text-[#3D322C] truncate font-serif-title">
                               {user.name}
@@ -310,8 +436,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                             <p className="text-[9px] text-[#A89C94]">Password</p>
                           ) : null}
                         </div>
-                        {isCurrent && <Check className="w-3.5 h-3.5 text-[#5DBBB0] stroke-[3]" />}
-                      </button>
+
+                        {/* Current Check Indicator or Trash Button */}
+                        <div className="absolute right-2 flex items-center gap-1">
+                          {isCurrent && (
+                            <Check className="w-3.5 h-3.5 text-[#5DBBB0] stroke-[3]" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleStartDeleteUser(user, e)}
+                            title={`Delete profile ${user.name}`}
+                            className="w-6 h-6 rounded-lg flex items-center justify-center text-[#B8ADA6] hover:text-red-500 hover:bg-red-50 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

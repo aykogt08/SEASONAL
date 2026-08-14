@@ -287,6 +287,58 @@ export async function loginUserWithPassword(
   };
 }
 
+export async function deleteUser(userId: string, password?: string | null) {
+  const trimmedPassword = password ? password.trim() : null;
+
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgres")) {
+    try {
+      const dbTask = async () => {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+        });
+
+        if (!user) throw new Error("User not found");
+
+        if (user.password && user.password !== trimmedPassword) {
+          throw new Error("INCORRECT_PASSWORD");
+        }
+
+        return await prisma.user.delete({
+          where: { id: userId },
+        });
+      };
+      return await withTimeout(dbTask(), 7000);
+    } catch (error) {
+      if (error instanceof Error && error.message === "INCORRECT_PASSWORD") {
+        throw error;
+      }
+      console.warn("DB deleteUser fallback:", error);
+    }
+  }
+
+  const store = loadLocalStore();
+  const user = (store.users || []).find((u) => u.id === userId);
+  if (!user) throw new Error("User not found");
+
+  if (user.password && user.password !== trimmedPassword) {
+    throw new Error("INCORRECT_PASSWORD");
+  }
+
+  store.users = (store.users || []).filter((u) => u.id !== userId);
+  if (store.hidden && store.hidden[userId]) {
+    delete store.hidden[userId];
+  }
+  if (store.checks) {
+    Object.keys(store.checks).forEach((key) => {
+      if (key.startsWith(`${userId}-`)) {
+        delete store.checks[key];
+      }
+    });
+  }
+  saveLocalStore(store);
+  return { success: true };
+}
+
 // ----------------------------------------------------
 // Foods & Checks Management with User Support & Privacy Isolation
 // ----------------------------------------------------
