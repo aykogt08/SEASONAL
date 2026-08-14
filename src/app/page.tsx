@@ -10,6 +10,7 @@ import { FoodCard } from "@/components/FoodCard";
 import { CustomizeFoodModal } from "@/components/CustomizeFoodModal";
 import { AddFoodModal } from "@/components/AddFoodModal";
 import { LoginModal } from "@/components/LoginModal";
+import { SyncOverlay } from "@/components/SyncOverlay";
 import { FoodWithCheck, UserData } from "@/lib/storage";
 import { SeasonType, CategoryType, getInitialFoodItemsWithIcons } from "@/lib/initialData";
 import { Sparkles, Calendar, Plus, Search } from "lucide-react";
@@ -592,6 +593,16 @@ export default function Home() {
           </p>
         </div>
       </div>
+
+      {/* Sync / Loading Interaction Blocker Overlay */}
+      <SyncOverlay
+        isVisible={isSyncing}
+        message={
+          currentUser
+            ? `Syncing ${currentUser.name}'s seasonal journal...`
+            : "Syncing seasonal tastes..."
+        }
+      />
 
       {/* Customize / Upload Modal */}
       {editingFood && (

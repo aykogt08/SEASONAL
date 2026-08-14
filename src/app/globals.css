@@ -96,8 +96,21 @@ body {
   100% { transform: scale(1); opacity: 1; }
 }
 
+@keyframes spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
 .animate-pop {
   animation: pop-in 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 1.5s linear infinite;
 }
 
 /* Custom subtle scrollbar */
